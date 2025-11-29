@@ -19,6 +19,7 @@ type EvaluationInput struct {
 
 // EvaluationResult is returned by the policy engine.
 type EvaluationResult struct {
-	Allow  bool
-	Reason string
+	Allow    bool
+	Reason   string
+	PolicyID *int64
 }

@@ -40,6 +40,7 @@ type GatewayAuthorizeResponse struct {
 	SyntheticJWT     string                 `json:"synthetic_jwt,omitempty"`
 	Agent            *AgentContext          `json:"agent,omitempty"`
 	TenantID         string                 `json:"tenant_id,omitempty"`
+	PolicyID         *int64                 `json:"policy_id,omitempty"`
 	APIVersion       string                 `json:"api_version"`
 }
 
@@ -194,7 +195,9 @@ func RegisterGatewayRoutes(
 		}
 		if !policyResult.Allow {
 			gwMetrics.IncAuthzDeny(tenantID, "policy_denied")
-			WriteAPIError(w, http.StatusForbidden, "policy_denied", policyResult.Reason)
+			denyResp := GatewayAuthorizeResponse{Allowed: false, Reason: "policy_denied", TenantID: tenantID, PolicyID: policyResult.PolicyID, APIVersion: version.APIVersion}
+			logGatewayDecision(started, tenantID, denyResp, false)
+			writeDecision(w, denyResp)
 			return
 		}
 		var agentContext *AgentContext
@@ -215,7 +218,8 @@ func RegisterGatewayRoutes(
 			ActingOnBehalfOf: decision.ActingOnBehalfOf,
 			DelegationDepth:  decision.DelegationDepth,
 			Claims:           filterSafeClaims(decision.Claims),
-			Reason:           decision.Reason,
+			Reason:           policyResult.Reason,
+			PolicyID:         policyResult.PolicyID,
 			Agent:            agentContext,
 			TenantID:         tenantID,
 			APIVersion:       version.APIVersion,

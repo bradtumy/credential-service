@@ -1,18 +1,19 @@
 package httpx
 
 import (
-	"bytes"
-	"context"
-	"crypto"
-	"crypto/ed25519"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time"
+        "bytes"
+        "context"
+        "crypto"
+        "crypto/ed25519"
+        "encoding/json"
+        "net/http"
+        "net/http/httptest"
+        "testing"
+        "time"
 
-	"github.com/bradtumy/credential-service/internal/domain"
-	"github.com/bradtumy/credential-service/internal/version"
+        "github.com/bradtumy/credential-service/internal/domain"
+        "github.com/bradtumy/credential-service/internal/policy"
+        "github.com/bradtumy/credential-service/internal/version"
 )
 
 func TestGatewayAuthorizeAllow(t *testing.T) {
@@ -242,9 +243,9 @@ func TestGatewayAuthorizeRateLimited(t *testing.T) {
 }
 
 func TestGatewayAuthorizeCacheHitSkipsVerification(t *testing.T) {
-	cache := &recordingCache{}
-	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", cache, nil, nil, time.Now)
+        cache := &recordingCache{}
+        mux := http.NewServeMux()
+        RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", cache, nil, nil, time.Now)
 
 	// Prime cache with allowed decision.
 	cached := GatewayAuthorizeResponse{Allowed: true, Subject: "did:example:cached", TenantID: "tenant", APIVersion: version.APIVersion}
@@ -304,9 +305,103 @@ func TestGatewayAuthorizeCachesDecision(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
 	mux.ServeHTTP(rr2, req2)
 
-	if resolverCalls != resolverCallsAfterFirst {
-		t.Fatalf("expected resolver calls to remain constant on cache hit")
-	}
+        if resolverCalls != resolverCallsAfterFirst {
+                t.Fatalf("expected resolver calls to remain constant on cache hit")
+        }
+}
+
+func TestGatewayAuthorizePolicyDeny(t *testing.T) {
+        _, priv, _ := ed25519.GenerateKey(nil)
+        issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
+
+        registry := domain.NewMemoryTrustRegistry()
+        registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
+
+        resolver := func(issuer string) (crypto.PublicKey, error) { return priv.Public(), nil }
+        token, _ := domain.IssueBasicCredential(issuerDID, "did:example:agent", priv, 5*time.Minute, map[string]any{"scope": []string{"read"}})
+
+        store := policy.NewMemoryStore()
+        _ = store.CreatePolicy(context.Background(), &policy.Policy{TenantID: "tenant", Name: "deny", Effect: policy.EffectDeny, Actions: []string{"read"}, Resources: []string{"orders"}, Subjects: []string{"any"}, Priority: 1, Enabled: true})
+        engine := policy.NewEngine(store)
+
+        mux := http.NewServeMux()
+        RegisterGatewayRoutes(mux, resolver, registry, engine, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+
+        body, _ := json.Marshal(GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"})
+        rr := httptest.NewRecorder()
+        req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+        mux.ServeHTTP(rr, req)
+
+        if rr.Code != http.StatusForbidden {
+                        t.Fatalf("expected 403, got %d", rr.Code)
+        }
+        var resp GatewayAuthorizeResponse
+        _ = json.NewDecoder(rr.Body).Decode(&resp)
+        if resp.Allowed || resp.Reason != "policy_denied" {
+                        t.Fatalf("expected policy deny, got %+v", resp)
+        }
+}
+
+func TestGatewayAuthorizePolicyAllow(t *testing.T) {
+        _, priv, _ := ed25519.GenerateKey(nil)
+        issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
+
+        registry := domain.NewMemoryTrustRegistry()
+        registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
+
+        resolver := func(issuer string) (crypto.PublicKey, error) { return priv.Public(), nil }
+        token, _ := domain.IssueBasicCredential(issuerDID, "did:example:agent", priv, 5*time.Minute, map[string]any{"scope": []string{"read"}, "roles": []string{"admin"}})
+
+        store := policy.NewMemoryStore()
+        _ = store.CreatePolicy(context.Background(), &policy.Policy{TenantID: "tenant", Name: "allow", Effect: policy.EffectAllow, Actions: []string{"read"}, Resources: []string{"orders/*"}, Subjects: []string{"role:admin"}, Priority: 1, Enabled: true})
+        engine := policy.NewEngine(store)
+
+        mux := http.NewServeMux()
+        RegisterGatewayRoutes(mux, resolver, registry, engine, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+
+        body, _ := json.Marshal(GatewayAuthorizeRequest{Credential: token, Resource: "orders/123", Action: "read"})
+        rr := httptest.NewRecorder()
+        req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+        mux.ServeHTTP(rr, req)
+
+        if rr.Code != http.StatusOK {
+                        t.Fatalf("expected 200, got %d", rr.Code)
+        }
+        var resp GatewayAuthorizeResponse
+        _ = json.NewDecoder(rr.Body).Decode(&resp)
+        if !resp.Allowed || resp.PolicyID == nil {
+                        t.Fatalf("expected allow with policy id, got %+v", resp)
+        }
+}
+
+func TestGatewayAuthorizePolicyDefaultDeny(t *testing.T) {
+        _, priv, _ := ed25519.GenerateKey(nil)
+        issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
+
+        registry := domain.NewMemoryTrustRegistry()
+        registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
+
+        resolver := func(issuer string) (crypto.PublicKey, error) { return priv.Public(), nil }
+        token, _ := domain.IssueBasicCredential(issuerDID, "did:example:agent", priv, 5*time.Minute, map[string]any{"scope": []string{"read"}})
+
+        engine := policy.NewEngine(policy.NewMemoryStore())
+
+        mux := http.NewServeMux()
+        RegisterGatewayRoutes(mux, resolver, registry, engine, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+
+        body, _ := json.Marshal(GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"})
+        rr := httptest.NewRecorder()
+        req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+        mux.ServeHTTP(rr, req)
+
+        if rr.Code != http.StatusForbidden {
+                        t.Fatalf("expected 403, got %d", rr.Code)
+        }
+        var resp GatewayAuthorizeResponse
+        _ = json.NewDecoder(rr.Body).Decode(&resp)
+        if resp.Allowed || resp.Reason != "policy_denied" {
+                        t.Fatalf("expected default policy deny, got %+v", resp)
+        }
 }
 
 type stubLimiter struct {

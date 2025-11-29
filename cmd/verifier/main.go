@@ -30,19 +30,23 @@ func main() {
 	var (
 		trustRegistry domain.TrustRegistry = domain.NewMemoryTrustRegistry()
 		db            *sql.DB
+		policyStore   policy.Store = policy.NewMemoryStore()
 	)
 
 	tenancyMode := tenant.Mode(cfg.TenancyMode)
 	var tenantStore tenant.Store = tenant.NewMemoryStore()
 
-	if cfg.UseDBTrustRegistry && cfg.DB_DSN != "" {
+	if cfg.DB_DSN != "" {
 		var err error
 		db, err = sql.Open("postgres", cfg.DB_DSN)
 		if err != nil {
 			log.Fatalf("connect to database: %v", err)
 		}
-		trustRegistry = storage.NewPGTrustRegistry(db)
+		if cfg.UseDBTrustRegistry {
+			trustRegistry = storage.NewPGTrustRegistry(db)
+		}
 		tenantStore = tenant.NewPGTenantStore(db)
+		policyStore = policy.NewPGStore(db)
 	}
 
 	if err := tenantStore.UpsertTenant(context.Background(), domain.Tenant{ID: cfg.DefaultTenantID, Name: "default", Enabled: true}); err != nil {
@@ -78,7 +82,7 @@ func main() {
 	}
 
 	readiness := func(ctx context.Context) error {
-		if cfg.UseDBTrustRegistry && db != nil {
+		if db != nil {
 			return db.PingContext(ctx)
 		}
 		return nil
@@ -101,7 +105,9 @@ func main() {
 		log.Printf("rate limiting enabled but using noop limiter; configure backend to enforce limits")
 	}
 
-	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policy.NoOpEngine{}, cfg.DefaultTenantID, signer, issuerDID, decisionCache, limiter, nil, time.Now)
+	policyEngine := policy.NewEngine(policyStore)
+	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signer, issuerDID, decisionCache, limiter, nil, time.Now)
+	httpx.RegisterPolicyAdminRoutes(mux, policyStore, cfg.DefaultTenantID)
 	httpx.RegisterHealthRoutes(mux, readiness)
 
 	handler := httpx.RequestContext(httpx.TenantMiddleware(tenantResolver, httpx.LoggingMiddleware(mux)))
