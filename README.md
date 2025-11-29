@@ -2,6 +2,14 @@
 
 A robust microservice designed for creating, managing, and verifying **W3C-compliant Verifiable Credentials (VCs)**. This service allows organizations to issue credentials, link them to **Decentralized Identifiers (DIDs)**, and enable secure, privacy-preserving verification across multiple platforms.
 
+## What Are DIDs and VCs?
+
+Decentralized Identifiers (DIDs) are unique digital identifiers backed by cryptographic keys. They are not anchored to any single company or database, giving people, services, and AI agents a portable way to prove who they are without relying on a central authority.
+
+Verifiable Credentials (VCs) are digitally signed statements about someone or something. Because they are signed, anyone can check that a VC has not been tampered with and that it really came from the claimed issuer. In this project, VCs can carry claims such as roles, permissions, or other attributes.
+
+This service issues and verifies VCs bound to DIDs so that humans, services, and AI agents can authenticate and share trusted information across systems in an interoperable way.
+
 ## Key Features
 
 - **Verifiable Credentials**: Issue credentials for a wide range of use cases, including identity verification, employment, education, and more, with full compliance to **W3C standards**.

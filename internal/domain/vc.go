@@ -130,33 +130,6 @@ func SignCredential(_ context.Context, privateKey []byte, credentialJSON []byte)
 	return []byte("SIGNATURE"), nil
 }
 
-// VerifyCredential validates a Verifiable Credential against basic checks.
-func VerifyCredential(vc VerifiableCredential) (bool, error) {
-	issuanceDate, err := time.Parse(time.RFC3339, vc.IssuanceDate)
-	if err != nil {
-		return false, errors.New("invalid issuance date")
-	}
-
-	expirationDate, err := time.Parse(time.RFC3339, vc.ExpirationDate)
-	if err != nil {
-		return false, errors.New("invalid expiration date")
-	}
-
-	if time.Now().After(expirationDate) {
-		return false, errors.New("credential has expired")
-	}
-
-	if issuanceDate.After(expirationDate) {
-		return false, errors.New("issuance date is after expiration date")
-	}
-
-	if vc.Proof.ProofValue == "" {
-		return false, errors.New("missing proof or invalid signature")
-	}
-
-	return true, nil
-}
-
 // IssueBasicCredential creates and signs a minimal VC using a compact JWS structure.
 func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, ttl time.Duration, claims map[string]interface{}) (string, error) {
 	if issuerDID == "" || subjectDID == "" {
