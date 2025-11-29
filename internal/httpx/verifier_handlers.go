@@ -13,16 +13,19 @@ import (
 
 // VerifyRequest represents a verifier request payload.
 type VerifyRequest struct {
-	Credential       string `json:"credential"`
-	ExpectedAudience string `json:"expected_audience"`
+	Credential       string   `json:"credential"`
+	Credentials      []string `json:"credentials"`
+	ExpectedAudience string   `json:"expected_audience"`
 }
 
 // VerifyResponse represents the verifier response payload.
 type VerifyResponse struct {
-	Valid     bool      `json:"valid"`
-	Subject   string    `json:"subject"`
-	Issuer    string    `json:"issuer"`
-	ExpiresAt time.Time `json:"expires_at"`
+	Valid            bool      `json:"valid"`
+	Subject          string    `json:"subject"`
+	Issuer           string    `json:"issuer"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	ActingOnBehalfOf string    `json:"acting_on_behalf_of,omitempty"`
+	DelegationDepth  int       `json:"delegation_depth"`
 }
 
 // RegisterVerifierRoutes wires verifier HTTP routes into the provided mux.
@@ -43,7 +46,12 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			return
 		}
 
-		if req.Credential == "" {
+		tokens := req.Credentials
+		if len(tokens) == 0 && req.Credential != "" {
+			tokens = []string{req.Credential}
+		}
+
+		if len(tokens) == 0 {
 			WriteError(w, http.StatusBadRequest, "invalid_request", "credential is required")
 			return
 		}
@@ -58,7 +66,7 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			return resolver(issuer)
 		}}
 
-		result, err := domain.VerifyCredential(req.Credential, deps, req.ExpectedAudience, now())
+		chainResult, err := domain.VerifyCredentialChain(tokens, deps, domain.VerificationOptions{ExpectedAudience: req.ExpectedAudience, MaxDelegationDepth: 3}, now())
 		if err != nil {
 			switch {
 			case errors.Is(err, domain.ErrUntrustedIssuer):
@@ -71,12 +79,20 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			return
 		}
 
+		leaf := chainResult.Credentials[len(chainResult.Credentials)-1]
+		actingOnBehalfOf := leaf.Subject
+		if chainResult.DelegationDepth > 0 {
+			actingOnBehalfOf = chainResult.RootDelegator
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(VerifyResponse{
-			Valid:     true,
-			Subject:   result.Credential.Subject,
-			Issuer:    result.Credential.Issuer,
-			ExpiresAt: result.Credential.ExpiresAt,
+			Valid:            true,
+			Subject:          leaf.Subject,
+			Issuer:           leaf.Issuer,
+			ExpiresAt:        leaf.ExpiresAt,
+			ActingOnBehalfOf: actingOnBehalfOf,
+			DelegationDepth:  chainResult.DelegationDepth,
 		})
 	})
 }
