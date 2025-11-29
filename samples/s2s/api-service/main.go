@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/bradtumy/credential-service/internal/domain"
@@ -16,6 +17,8 @@ type response struct {
 }
 
 func main() {
+	port := envOrDefault("API_HTTP_PORT", "8082")
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/orders", func(w http.ResponseWriter, r *http.Request) {
 		authz := r.Header.Get("Authorization")
@@ -42,6 +45,13 @@ func main() {
 		_ = json.NewEncoder(w).Encode(response{OK: true, Subject: subject, Claims: payload})
 	})
 
-	log.Printf("api-service listening on :8082")
-	log.Fatal(http.ListenAndServe(":8082", mux))
+	log.Printf("api-service listening on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, mux))
+}
+
+func envOrDefault(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
 }

@@ -23,9 +23,18 @@ type gatewayAuthzResponse struct {
 }
 
 func main() {
-	issuerURL := envOrDefault("ISSUER_URL", "http://localhost:8080")
-	gatewayURL := envOrDefault("GATEWAY_URL", "http://localhost:8081")
-	apiURL := envOrDefault("API_URL", "http://localhost:8082")
+	issuerURL := envOrDefault(
+		[]string{"ISSUER_BASE_URL", "ISSUER_URL"},
+		"http://localhost:8080",
+	)
+	gatewayURL := envOrDefault(
+		[]string{"GATEWAY_AUTHORIZE_URL", "GATEWAY_URL"},
+		"http://localhost:8081",
+	)
+	apiURL := envOrDefault(
+		[]string{"API_BASE_URL", "API_URL"},
+		"http://localhost:8082",
+	)
 
 	credential, err := issueCredential(issuerURL)
 	if err != nil {
@@ -124,9 +133,11 @@ func callAPI(baseURL, token string) error {
 	return nil
 }
 
-func envOrDefault(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
+func envOrDefault(keys []string, fallback string) string {
+	for _, key := range keys {
+		if val := os.Getenv(key); val != "" {
+			return val
+		}
 	}
 	return fallback
 }
