@@ -29,3 +29,31 @@ func TestLoadIssuerConfigFromEnvOverrides(t *testing.T) {
 		t.Fatalf("expected tenant-123, got %s", cfg.DefaultTenantID)
 	}
 }
+
+func TestLoadVerifierConfigFromEnvDefaults(t *testing.T) {
+	t.Setenv("VERIFIER_HTTP_PORT", "")
+	t.Setenv("DEFAULT_TENANT_ID", "")
+
+	cfg := LoadVerifierConfigFromEnv()
+
+	if cfg.HTTPPort != "8081" {
+		t.Fatalf("expected default verifier port 8081, got %s", cfg.HTTPPort)
+	}
+	if cfg.DefaultTenantID != "default-tenant" {
+		t.Fatalf("expected default tenant id, got %s", cfg.DefaultTenantID)
+	}
+}
+
+func TestLoadVerifierConfigFromEnvOverrides(t *testing.T) {
+	t.Setenv("VERIFIER_HTTP_PORT", "7070")
+	t.Setenv("DEFAULT_TENANT_ID", "tenant-verifier")
+
+	cfg := LoadVerifierConfigFromEnv()
+
+	if cfg.HTTPPort != "7070" {
+		t.Fatalf("expected verifier port 7070, got %s", cfg.HTTPPort)
+	}
+	if cfg.DefaultTenantID != "tenant-verifier" {
+		t.Fatalf("expected tenant-verifier, got %s", cfg.DefaultTenantID)
+	}
+}

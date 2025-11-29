@@ -50,3 +50,17 @@ func LoadIssuerConfigFromEnv() IssuerConfig {
 		DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
 	}
 }
+
+// VerifierConfig holds configuration for the verifier service.
+type VerifierConfig struct {
+	HTTPPort        string
+	DefaultTenantID string
+}
+
+// LoadVerifierConfigFromEnv loads verifier configuration from environment variables.
+func LoadVerifierConfigFromEnv() VerifierConfig {
+	return VerifierConfig{
+		HTTPPort:        getenv("VERIFIER_HTTP_PORT", "8081"),
+		DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
+	}
+}
