@@ -81,7 +81,7 @@ func TestMultiTenantEndToEnd(t *testing.T) {
 	mux := http.NewServeMux()
 	httpx.RegisterIssuerRoutes(mux, keyStore, cfg)
 	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, time.Now)
-	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signingKeyA, issuerDIDs[cfg.DefaultTenantID], time.Now)
+	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signingKeyA, issuerDIDs[cfg.DefaultTenantID], nil, nil, nil, time.Now)
 
 	handler := httpx.RequestContext(httpx.TenantMiddleware(tenant.Resolver{Mode: tenant.ModeMulti, DefaultTenantID: cfg.DefaultTenantID, Store: tenantStore}, mux))
 
@@ -119,7 +119,7 @@ func TestMultiTenantEndToEnd(t *testing.T) {
 		t.Fatalf("verify tenant-b expected forbidden, got %d", verifyRecB.Code)
 	}
 
-	gatewayPayload := httpx.GatewayAuthorizeRequest{Credential: issueResp.Credential}
+	gatewayPayload := httpx.GatewayAuthorizeRequest{Credential: issueResp.Credential, Resource: "sample-api", Action: "invoke"}
 	gatewayBody, _ := json.Marshal(gatewayPayload)
 	gatewayReq := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(gatewayBody))
 	gatewayReq.Header.Set("X-Tenant-ID", "tenant-a")

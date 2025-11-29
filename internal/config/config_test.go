@@ -51,6 +51,11 @@ func TestLoadVerifierConfigFromEnvDefaults(t *testing.T) {
 	t.Setenv("VERIFIER_DB_DSN", "")
 	t.Setenv("VERIFIER_USE_DB_TRUST_REGISTRY", "")
 	t.Setenv("VERIFIER_LOG_LEVEL", "")
+	t.Setenv("GATEWAY_CACHE_ENABLED", "")
+	t.Setenv("RATELIMIT_ENABLED", "")
+	t.Setenv("REDIS_ADDR", "")
+	t.Setenv("REDIS_PASSWORD", "")
+	t.Setenv("REDIS_DB", "")
 
 	cfg := LoadVerifierConfigFromEnv()
 
@@ -72,6 +77,15 @@ func TestLoadVerifierConfigFromEnvDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
 	}
+	if cfg.GatewayCache {
+		t.Fatalf("expected gateway cache disabled by default")
+	}
+	if cfg.RateLimitEnabled {
+		t.Fatalf("expected rate limiting disabled by default")
+	}
+	if cfg.RedisAddr != "" || cfg.RedisPassword != "" || cfg.RedisDB != 0 {
+		t.Fatalf("expected redis settings to be empty by default")
+	}
 }
 
 func TestLoadVerifierConfigFromEnvOverrides(t *testing.T) {
@@ -81,6 +95,11 @@ func TestLoadVerifierConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("VERIFIER_USE_DB_TRUST_REGISTRY", "true")
 	t.Setenv("VERIFIER_LOG_LEVEL", "warn")
 	t.Setenv("TENANCY_MODE", "multi")
+	t.Setenv("GATEWAY_CACHE_ENABLED", "true")
+	t.Setenv("RATELIMIT_ENABLED", "true")
+	t.Setenv("REDIS_ADDR", "redis:6379")
+	t.Setenv("REDIS_PASSWORD", "secret")
+	t.Setenv("REDIS_DB", "2")
 
 	cfg := LoadVerifierConfigFromEnv()
 
@@ -101,5 +120,14 @@ func TestLoadVerifierConfigFromEnvOverrides(t *testing.T) {
 	}
 	if cfg.LogLevel != "warn" {
 		t.Fatalf("expected warn log level, got %s", cfg.LogLevel)
+	}
+	if !cfg.GatewayCache {
+		t.Fatalf("expected gateway cache enabled")
+	}
+	if !cfg.RateLimitEnabled {
+		t.Fatalf("expected rate limiting enabled")
+	}
+	if cfg.RedisAddr != "redis:6379" || cfg.RedisPassword != "secret" || cfg.RedisDB != 2 {
+		t.Fatalf("expected redis settings to propagate, got %+v", cfg)
 	}
 }
