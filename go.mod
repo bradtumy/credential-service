@@ -3,11 +3,12 @@ module github.com/bradtumy/credential-service
 go 1.22
 
 require (
-	github.com/google/uuid v1.6.0
-	github.com/gorilla/mux v1.8.1
-	github.com/hashicorp/vault/api v1.15.0
-	github.com/jackc/pgx/v4 v4.18.3
-	github.com/streadway/amqp v1.1.0
+        github.com/bradtumy/credential-service/sdk/go v0.0.0
+        github.com/google/uuid v1.6.0
+        github.com/gorilla/mux v1.8.1
+        github.com/hashicorp/vault/api v1.15.0
+        github.com/jackc/pgx/v4 v4.18.3
+        github.com/streadway/amqp v1.1.0
 )
 
 require (
@@ -40,3 +41,5 @@ require (
 	golang.org/x/text v0.15.0 // indirect
 	golang.org/x/time v0.0.0-20200416051211-89c76fbcd5d1 // indirect
 )
+
+replace github.com/bradtumy/credential-service/sdk/go => ./sdk/go

@@ -2,6 +2,56 @@
 
 A robust microservice designed for creating, managing, and verifying **W3C-compliant Verifiable Credentials (VCs)**. This service allows organizations to issue credentials, link them to **Decentralized Identifiers (DIDs)**, and enable secure, privacy-preserving verification across multiple platforms.
 
+## 🚀 5-Minute Quickstart
+
+1. **Start the stack**
+
+   ```bash
+   docker compose up --build
+   ```
+
+2. **Install an SDK**
+
+   Go:
+
+   ```bash
+   go get github.com/bradtumy/credential-service/sdk/go
+   ```
+
+   Node:
+
+   ```bash
+   npm install @credential-service/sdk
+   ```
+
+3. **Create a client and issue a credential**
+
+   ```go
+   client := &sdk.Client{BaseURL: "http://localhost:8080"}
+   issued, _ := client.IssueCredential(context.Background(), sdk.IssueRequest{
+       SubjectDID: "did:example:alice",
+       TTLSeconds: 600,
+       Claims: map[string]interface{}{"aud": "example-api"},
+   })
+   ```
+
+4. **Authorize with the gateway and get a synthetic JWT**
+
+   ```go
+   decision, _ := client.GatewayAuthorize(context.Background(), sdk.GatewayAuthorizeRequest{
+       Credential:       issued.Credential,
+       ExpectedAudience: "example-api",
+       WantSyntheticJWT: true,
+   })
+   token := decision.SyntheticJWT
+   ```
+
+5. **Call your protected API with the synthetic JWT**
+
+   ```bash
+   curl -H "Authorization: Bearer $token" http://localhost:8081/hello
+   ```
+
 ## What Are DIDs and VCs?
 
 Decentralized Identifiers (DIDs) are unique digital identifiers backed by cryptographic keys. They are not anchored to any single company or database, giving people, services, and AI agents a portable way to prove who they are without relying on a central authority.
