@@ -43,6 +43,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, time.Now)
+	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, signer, issuerDID, time.Now)
 
 	log.Printf("Verifier service running on port %s...", cfg.HTTPPort)
 	log.Fatal(http.ListenAndServe(":"+cfg.HTTPPort, mux))
