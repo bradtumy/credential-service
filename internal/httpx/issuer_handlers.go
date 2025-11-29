@@ -1,7 +1,9 @@
 package httpx
 
 import (
+	"crypto"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -20,6 +22,14 @@ type IssueRequest struct {
 // IssueResponse represents the response payload after issuance.
 type IssueResponse struct {
 	Credential string `json:"credential"`
+}
+
+// DelegateRequest represents the payload for issuing delegated credentials.
+type DelegateRequest struct {
+	ParentCredential string   `json:"parent_credential"`
+	DelegateDID      string   `json:"delegate_did"`
+	Scope            []string `json:"scope"`
+	TTLSeconds       int64    `json:"ttl_seconds"`
 }
 
 // RegisterIssuerRoutes wires issuer HTTP routes into the provided mux.
@@ -60,6 +70,97 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 		}
 
 		token, err := domain.IssueBasicCredential(issuerDID, req.SubjectDID, signer, ttl, req.Claims)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "issuance_error", err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token})
+	})
+
+	mux.HandleFunc("/v1/credentials/delegate", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		var req DelegateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			WriteError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			return
+		}
+
+		if req.ParentCredential == "" || req.DelegateDID == "" {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "parent_credential and delegate_did are required")
+			return
+		}
+		if len(req.Scope) == 0 {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "scope is required")
+			return
+		}
+
+		ttl := time.Duration(req.TTLSeconds) * time.Second
+		if ttl <= 0 {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "ttl_seconds must be positive")
+			return
+		}
+
+		signer, err := store.GetSigningKey(cfg.DefaultTenantID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "keystore_error", err.Error())
+			return
+		}
+
+		issuerDID, err := domain.DIDFromPublicKey(signer.Public())
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "did_error", err.Error())
+			return
+		}
+
+		deps := domain.VerifierDependencies{ResolveIssuerPublicKey: func(issuer string) (crypto.PublicKey, error) {
+			if issuer != issuerDID {
+				return nil, domain.ErrUntrustedIssuer
+			}
+			return signer.Public(), nil
+		}}
+
+		now := time.Now()
+		parentResult, err := domain.VerifyCredentialChain([]string{req.ParentCredential}, deps, domain.VerificationOptions{MaxDelegationDepth: 1}, now)
+		if err != nil {
+			status := http.StatusBadRequest
+			switch {
+			case errors.Is(err, domain.ErrUntrustedIssuer):
+				status = http.StatusForbidden
+			case errors.Is(err, domain.ErrExpiredCredential), errors.Is(err, domain.ErrInvalidSignature):
+				status = http.StatusUnauthorized
+			}
+			WriteError(w, status, "invalid_parent", err.Error())
+			return
+		}
+
+		parentCred := parentResult.Credentials[0]
+		parentScope := domain.ScopeFromClaims(parentCred.Claims)
+		if !domain.IsScopeSubset(parentScope, req.Scope) {
+			WriteError(w, http.StatusBadRequest, "invalid_scope", "delegated scope must be within parent scope")
+			return
+		}
+
+		expiresAt := now.Add(ttl)
+		if !domain.IsTTLWithinParent(parentCred.ExpiresAt, expiresAt) {
+			WriteError(w, http.StatusBadRequest, "invalid_ttl", "delegated credential must expire before parent")
+			return
+		}
+
+		claims := map[string]interface{}{
+			"scope":     req.Scope,
+			"parent_id": parentCred.ID,
+		}
+		if aud, ok := parentCred.Claims["aud"]; ok {
+			claims["aud"] = aud
+		}
+
+		token, err := domain.IssueBasicCredential(issuerDID, req.DelegateDID, signer, ttl, claims)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "issuance_error", err.Error())
 			return

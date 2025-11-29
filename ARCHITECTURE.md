@@ -19,3 +19,10 @@ The credential-service repository now follows an idiomatic Go layout that separa
 2. **Store/Queue**: Credentials persisted via `pgx` (if configured) and issuance jobs emitted to RabbitMQ for background processing.
 3. **Verify**: Presentation posted to `cmd/verifier` → handler (`internal/verifier`) → validation rules in `internal/domain`.
 4. **Future**: Trust registry and delegation rules will extend `internal/domain` and share middleware/config utilities.
+
+## Delegation and Agent Identity
+- Credentials can be delegated from one DID to another, enabling agents to act with constrained authority.
+- Each delegation step must shrink scope and shorten time-to-live; children cannot outlive or outrange parents.
+- Verification enforces a maximum delegation depth to cap chain length.
+- Verifier responses surface both the active subject and who they are acting on behalf of.
+- This makes agent actions auditable while preserving least-privilege semantics.

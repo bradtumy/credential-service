@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bradtumy/credential-service/internal/config"
+	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/keystore"
 )
 
@@ -59,6 +60,109 @@ func TestIssueHandlerMissingSubject(t *testing.T) {
 	payload, _ := json.Marshal(body)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/credentials/issue", bytes.NewReader(payload))
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+}
+
+func TestDelegateHandlerSuccess(t *testing.T) {
+	store := keystore.NewMemoryKeyStore()
+	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
+	mux := http.NewServeMux()
+	RegisterIssuerRoutes(mux, store, cfg)
+
+	signer, err := store.GetSigningKey(cfg.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("get signing key: %v", err)
+	}
+	issuerDID, err := domain.DIDFromPublicKey(signer.Public())
+	if err != nil {
+		t.Fatalf("did from key: %v", err)
+	}
+
+	parentToken, err := domain.IssueBasicCredential(issuerDID, "did:jwk:parent", signer, 10*time.Minute, map[string]interface{}{"scope": []string{"read", "write"}})
+	if err != nil {
+		t.Fatalf("issue parent: %v", err)
+	}
+
+	body := DelegateRequest{
+		ParentCredential: parentToken,
+		DelegateDID:      "did:jwk:agent",
+		Scope:            []string{"read"},
+		TTLSeconds:       int64((5 * time.Minute).Seconds()),
+	}
+	payload, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/credentials/delegate", bytes.NewReader(payload))
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var resp IssueResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Credential == "" {
+		t.Fatalf("expected delegated credential")
+	}
+}
+
+func TestDelegateHandlerScopeExpansion(t *testing.T) {
+	store := keystore.NewMemoryKeyStore()
+	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
+	mux := http.NewServeMux()
+	RegisterIssuerRoutes(mux, store, cfg)
+
+	signer, _ := store.GetSigningKey(cfg.DefaultTenantID)
+	issuerDID, _ := domain.DIDFromPublicKey(signer.Public())
+	parentToken, _ := domain.IssueBasicCredential(issuerDID, "did:jwk:parent", signer, 10*time.Minute, map[string]interface{}{"scope": []string{"read"}})
+
+	body := DelegateRequest{
+		ParentCredential: parentToken,
+		DelegateDID:      "did:jwk:agent",
+		Scope:            []string{"read", "write"},
+		TTLSeconds:       int64((5 * time.Minute).Seconds()),
+	}
+	payload, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/credentials/delegate", bytes.NewReader(payload))
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+}
+
+func TestDelegateHandlerTTLExpansion(t *testing.T) {
+	store := keystore.NewMemoryKeyStore()
+	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
+	mux := http.NewServeMux()
+	RegisterIssuerRoutes(mux, store, cfg)
+
+	signer, _ := store.GetSigningKey(cfg.DefaultTenantID)
+	issuerDID, _ := domain.DIDFromPublicKey(signer.Public())
+	parentToken, _ := domain.IssueBasicCredential(issuerDID, "did:jwk:parent", signer, 5*time.Minute, map[string]interface{}{"scope": []string{"read"}})
+
+	body := DelegateRequest{
+		ParentCredential: parentToken,
+		DelegateDID:      "did:jwk:agent",
+		Scope:            []string{"read"},
+		TTLSeconds:       int64((10 * time.Minute).Seconds()),
+	}
+	payload, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/credentials/delegate", bytes.NewReader(payload))
 	recorder := httptest.NewRecorder()
 
 	mux.ServeHTTP(recorder, req)
