@@ -1,6 +1,6 @@
 # Credential Service
 
-A robust microservice designed for creating, managing, and verifying **W3C-compliant Verifiable Credentials (VCs)**. This service allows organizations to issue credentials, link them to **Decentralized Identifiers (DIDs)**, and enable secure, privacy-preserving verification across multiple platforms.
+A robust microservice designed for creating, managing, and verifying **W3C-compliant Verifiable Credentials (VCs)**. This service allows organizations to issue credentials, link them to **Decentralized Identifiers (DIDs)**, and enable secure, privacy-preserving verification across multiple platforms. The platform now ships with agent-mode helpers so AI agents can safely act on behalf of humans with scoped, short-lived credentials.
 
 ## 🚀 5-Minute Quickstart
 
@@ -51,6 +51,14 @@ A robust microservice designed for creating, managing, and verifying **W3C-compl
    ```bash
    curl -H "Authorization: Bearer $token" http://localhost:8081/hello
    ```
+
+### Agent mode (30-second example)
+
+Use the Go helper to mint a short-lived delegated credential for an agent and call a service on behalf of a human:
+
+```bash
+go run ./examples/agent-basic
+```
 
 ## What Are DIDs and VCs?
 

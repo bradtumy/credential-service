@@ -29,6 +29,14 @@ type GatewayAuthorizeResponse struct {
 	Claims           map[string]interface{} `json:"claims,omitempty"`
 	Reason           string                 `json:"reason,omitempty"`
 	SyntheticJWT     string                 `json:"synthetic_jwt,omitempty"`
+	Agent            *AgentContext          `json:"agent,omitempty"`
+}
+
+// AgentContext surfaces on-behalf-of metadata for agent invocations.
+type AgentContext struct {
+	ActingOnBehalfOf string   `json:"acting_on_behalf_of"`
+	DelegationDepth  int      `json:"delegation_depth"`
+	Scope            []string `json:"scope,omitempty"`
 }
 
 // RegisterGatewayRoutes wires gateway-specific routes into the provided mux.
@@ -84,6 +92,17 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 		}
 
 		decision := domain.BuildAuthzDecisionFromVerification(chainResult)
+		var agentContext *AgentContext
+		if len(chainResult.Credentials) > 1 {
+			parent := chainResult.Credentials[len(chainResult.Credentials)-2]
+			child := chainResult.Credentials[len(chainResult.Credentials)-1]
+			ctx := domain.BuildOnBehalfOfContext(&parent, &child)
+			agentContext = &AgentContext{
+				ActingOnBehalfOf: ctx.ActingFor,
+				DelegationDepth:  ctx.DelegationDepth,
+				Scope:            ctx.Scope,
+			}
+		}
 
 		response := GatewayAuthorizeResponse{
 			Allowed:          decision.Allowed,
@@ -92,6 +111,7 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 			DelegationDepth:  decision.DelegationDepth,
 			Claims:           decision.Claims,
 			Reason:           decision.Reason,
+			Agent:            agentContext,
 		}
 
 		if req.WantSyntheticJWT {

@@ -58,11 +58,19 @@ type GatewayAuthorizeRequest struct {
 
 // GatewayAuthorizeResponse is returned when authorizing a request at the gateway.
 type GatewayAuthorizeResponse struct {
-	Allowed          bool                   `json:"allowed"`
-	Subject          string                 `json:"subject,omitempty"`
-	ActingOnBehalfOf string                 `json:"acting_on_behalf_of,omitempty"`
-	DelegationDepth  int                    `json:"delegation_depth,omitempty"`
-	Claims           map[string]interface{} `json:"claims,omitempty"`
-	Reason           string                 `json:"reason,omitempty"`
-	SyntheticJWT     string                 `json:"synthetic_jwt,omitempty"`
+        Allowed          bool                   `json:"allowed"`
+        Subject          string                 `json:"subject,omitempty"`
+        ActingOnBehalfOf string                 `json:"acting_on_behalf_of,omitempty"`
+        DelegationDepth  int                    `json:"delegation_depth,omitempty"`
+        Claims           map[string]interface{} `json:"claims,omitempty"`
+        Reason           string                 `json:"reason,omitempty"`
+        SyntheticJWT     string                 `json:"synthetic_jwt,omitempty"`
+        Agent            *GatewayAgentContext   `json:"agent,omitempty"`
+}
+
+// GatewayAgentContext exposes agent metadata when delegation is detected.
+type GatewayAgentContext struct {
+        ActingOnBehalfOf string   `json:"acting_on_behalf_of"`
+        DelegationDepth  int      `json:"delegation_depth"`
+        Scope            []string `json:"scope,omitempty"`
 }

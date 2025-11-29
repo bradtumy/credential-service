@@ -15,8 +15,8 @@ import (
 )
 
 func TestGatewayAuthorizeAllow(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(nil)
-	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
+        _, priv, _ := ed25519.GenerateKey(nil)
+        issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
 registry := domain.NewMemoryTrustRegistry()
 registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
@@ -57,9 +57,48 @@ registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 
-	if resp.SyntheticJWT == "" {
-		t.Fatalf("expected synthetic jwt to be present")
-	}
+        if resp.SyntheticJWT == "" {
+                t.Fatalf("expected synthetic jwt to be present")
+        }
+}
+
+func TestGatewayAuthorizeAgentContext(t *testing.T) {
+        _, priv, _ := ed25519.GenerateKey(nil)
+        issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
+
+        registry := domain.NewMemoryTrustRegistry()
+        registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
+
+        resolver := func(issuer string) (crypto.PublicKey, error) {
+                return priv.Public(), nil
+        }
+
+        parentToken, _ := domain.IssueBasicCredential(issuerDID, "did:example:parent", priv, 5*time.Minute, map[string]interface{}{"scope": []string{"read"}})
+        childToken, _ := domain.IssueBasicCredential(issuerDID, "did:example:agent", priv, 2*time.Minute, map[string]interface{}{"scope": []string{"read"}})
+
+        mux := http.NewServeMux()
+        RegisterGatewayRoutes(mux, resolver, registry, "tenant", priv, issuerDID, time.Now)
+
+        payload := GatewayAuthorizeRequest{Credentials: []string{parentToken, childToken}, WantSyntheticJWT: true}
+        body, _ := json.Marshal(payload)
+
+        rr := httptest.NewRecorder()
+        req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+
+        mux.ServeHTTP(rr, req)
+
+        if rr.Code != http.StatusOK {
+                t.Fatalf("expected status 200, got %d", rr.Code)
+        }
+
+        var resp GatewayAuthorizeResponse
+        if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+                t.Fatalf("decode response: %v", err)
+        }
+
+        if resp.Agent == nil || resp.Agent.ActingOnBehalfOf != "did:example:parent" || resp.Agent.DelegationDepth == 0 {
+                t.Fatalf("expected agent context, got %+v", resp.Agent)
+        }
 }
 
 func TestGatewayAuthorizeDenyExpired(t *testing.T) {
