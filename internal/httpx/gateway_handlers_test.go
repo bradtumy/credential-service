@@ -1,24 +1,25 @@
 package httpx
 
 import (
-	"bytes"
-	"crypto"
-	"crypto/ed25519"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time"
+"bytes"
+"context"
+"crypto"
+"crypto/ed25519"
+"encoding/json"
+"net/http"
+"net/http/httptest"
+"testing"
+"time"
 
-	"github.com/bradtumy/credential-service/internal/domain"
+"github.com/bradtumy/credential-service/internal/domain"
 )
 
 func TestGatewayAuthorizeAllow(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
-	registry := domain.NewMemoryTrustRegistry()
-	registry.AddTrustedIssuer("tenant", issuerDID)
+registry := domain.NewMemoryTrustRegistry()
+registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
 
 	resolver := func(issuer string) (crypto.PublicKey, error) {
 		if issuer != issuerDID {
@@ -65,8 +66,8 @@ func TestGatewayAuthorizeDenyExpired(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
-	registry := domain.NewMemoryTrustRegistry()
-	registry.AddTrustedIssuer("tenant", issuerDID)
+registry := domain.NewMemoryTrustRegistry()
+registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
 
 	resolver := func(string) (crypto.PublicKey, error) {
 		return priv.Public(), nil

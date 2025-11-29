@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestMemoryTrustRegistry(t *testing.T) {
 	registry := NewMemoryTrustRegistry()
@@ -9,17 +12,27 @@ func TestMemoryTrustRegistry(t *testing.T) {
 	tenantB := "tenant-b"
 	issuer := "did:jwk:issuer"
 
-	registry.AddTrustedIssuer(tenantA, issuer)
+	if err := registry.AddTrustedIssuer(context.Background(), tenantA, issuer); err != nil {
+		t.Fatalf("unexpected error adding issuer: %v", err)
+	}
 
-	if !registry.IsTrustedIssuer(tenantA, issuer) {
+	trusted, err := registry.IsTrustedIssuer(context.Background(), tenantA, issuer)
+	if err != nil {
+		t.Fatalf("unexpected error checking trust: %v", err)
+	}
+	if !trusted {
 		t.Fatalf("expected issuer to be trusted for tenantA")
 	}
 
-	if registry.IsTrustedIssuer(tenantB, issuer) {
+	if err := registry.RemoveTrustedIssuer(context.Background(), tenantB, issuer); err != nil {
+		t.Fatalf("unexpected error removing issuer for tenantB: %v", err)
+	}
+
+	if trusted, _ := registry.IsTrustedIssuer(context.Background(), tenantB, issuer); trusted {
 		t.Fatalf("issuer should not be trusted for tenantB")
 	}
 
-	if registry.IsTrustedIssuer(tenantA, "did:jwk:unknown") {
+	if trusted, _ := registry.IsTrustedIssuer(context.Background(), tenantA, "did:jwk:unknown"); trusted {
 		t.Fatalf("unexpected trust for unknown issuer")
 	}
 }

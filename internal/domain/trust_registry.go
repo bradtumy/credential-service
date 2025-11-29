@@ -1,11 +1,15 @@
 package domain
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // TrustRegistry describes issuer trust lookups.
 type TrustRegistry interface {
-	IsTrustedIssuer(tenantID, issuerDID string) bool
-	AddTrustedIssuer(tenantID, issuerDID string)
+	IsTrustedIssuer(ctx context.Context, tenantID, issuerDID string) (bool, error)
+	AddTrustedIssuer(ctx context.Context, tenantID, issuerDID string) error
+	RemoveTrustedIssuer(ctx context.Context, tenantID, issuerDID string) error
 }
 
 // MemoryTrustRegistry provides an in-memory trust store.
@@ -20,21 +24,21 @@ func NewMemoryTrustRegistry() *MemoryTrustRegistry {
 }
 
 // IsTrustedIssuer checks whether an issuer is trusted for a tenant.
-func (m *MemoryTrustRegistry) IsTrustedIssuer(tenantID, issuerDID string) bool {
+func (m *MemoryTrustRegistry) IsTrustedIssuer(_ context.Context, tenantID, issuerDID string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	issuers, ok := m.trusted[tenantID]
 	if !ok {
-		return false
+		return false, nil
 	}
 
 	_, trusted := issuers[issuerDID]
-	return trusted
+	return trusted, nil
 }
 
 // AddTrustedIssuer marks an issuer as trusted for a tenant.
-func (m *MemoryTrustRegistry) AddTrustedIssuer(tenantID, issuerDID string) {
+func (m *MemoryTrustRegistry) AddTrustedIssuer(_ context.Context, tenantID, issuerDID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -43,4 +47,19 @@ func (m *MemoryTrustRegistry) AddTrustedIssuer(tenantID, issuerDID string) {
 	}
 
 	m.trusted[tenantID][issuerDID] = struct{}{}
+	return nil
+}
+
+// RemoveTrustedIssuer deletes an issuer from the trust registry.
+func (m *MemoryTrustRegistry) RemoveTrustedIssuer(_ context.Context, tenantID, issuerDID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	issuers := m.trusted[tenantID]
+	if issuers == nil {
+		return nil
+	}
+
+	delete(issuers, issuerDID)
+	return nil
 }

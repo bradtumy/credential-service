@@ -3,8 +3,11 @@ package httpx
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/bradtumy/credential-service/internal/logging"
 )
 
 type contextKey string
@@ -49,4 +52,34 @@ func TenantIDFromContext(ctx context.Context) string {
 		}
 	}
 	return ""
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(statusCode int) {
+	r.status = statusCode
+	r.ResponseWriter.WriteHeader(statusCode)
+}
+
+// LoggingMiddleware emits structured request logs for HTTP handlers.
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+
+		next.ServeHTTP(recorder, r)
+
+		duration := time.Since(start)
+		logging.Logger.Info("http_request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", recorder.status,
+			"duration_ms", duration.Milliseconds(),
+			"request_id", RequestIDFromContext(r.Context()),
+			"tenant_id", TenantIDFromContext(r.Context()),
+		)
+	})
 }

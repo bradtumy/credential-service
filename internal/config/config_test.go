@@ -5,6 +5,7 @@ import "testing"
 func TestLoadIssuerConfigFromEnvDefaults(t *testing.T) {
 	t.Setenv("ISSUER_HTTP_PORT", "")
 	t.Setenv("DEFAULT_TENANT_ID", "")
+	t.Setenv("ISSUER_LOG_LEVEL", "")
 
 	cfg := LoadIssuerConfigFromEnv()
 
@@ -14,11 +15,15 @@ func TestLoadIssuerConfigFromEnvDefaults(t *testing.T) {
 	if cfg.DefaultTenantID != "default-tenant" {
 		t.Fatalf("expected default tenant id, got %s", cfg.DefaultTenantID)
 	}
+	if cfg.LogLevel != "info" {
+		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
+	}
 }
 
 func TestLoadIssuerConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("ISSUER_HTTP_PORT", "9090")
 	t.Setenv("DEFAULT_TENANT_ID", "tenant-123")
+	t.Setenv("ISSUER_LOG_LEVEL", "debug")
 
 	cfg := LoadIssuerConfigFromEnv()
 
@@ -28,11 +33,17 @@ func TestLoadIssuerConfigFromEnvOverrides(t *testing.T) {
 	if cfg.DefaultTenantID != "tenant-123" {
 		t.Fatalf("expected tenant-123, got %s", cfg.DefaultTenantID)
 	}
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("expected debug log level, got %s", cfg.LogLevel)
+	}
 }
 
 func TestLoadVerifierConfigFromEnvDefaults(t *testing.T) {
 	t.Setenv("VERIFIER_HTTP_PORT", "")
 	t.Setenv("DEFAULT_TENANT_ID", "")
+	t.Setenv("VERIFIER_DB_DSN", "")
+	t.Setenv("VERIFIER_USE_DB_TRUST_REGISTRY", "")
+	t.Setenv("VERIFIER_LOG_LEVEL", "")
 
 	cfg := LoadVerifierConfigFromEnv()
 
@@ -42,11 +53,23 @@ func TestLoadVerifierConfigFromEnvDefaults(t *testing.T) {
 	if cfg.DefaultTenantID != "default-tenant" {
 		t.Fatalf("expected default tenant id, got %s", cfg.DefaultTenantID)
 	}
+	if cfg.DB_DSN != "" {
+		t.Fatalf("expected empty DB DSN, got %s", cfg.DB_DSN)
+	}
+	if cfg.UseDBTrustRegistry {
+		t.Fatalf("expected DB trust registry disabled by default")
+	}
+	if cfg.LogLevel != "info" {
+		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
+	}
 }
 
 func TestLoadVerifierConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("VERIFIER_HTTP_PORT", "7070")
 	t.Setenv("DEFAULT_TENANT_ID", "tenant-verifier")
+	t.Setenv("VERIFIER_DB_DSN", "postgres://example")
+	t.Setenv("VERIFIER_USE_DB_TRUST_REGISTRY", "true")
+	t.Setenv("VERIFIER_LOG_LEVEL", "warn")
 
 	cfg := LoadVerifierConfigFromEnv()
 
@@ -55,5 +78,14 @@ func TestLoadVerifierConfigFromEnvOverrides(t *testing.T) {
 	}
 	if cfg.DefaultTenantID != "tenant-verifier" {
 		t.Fatalf("expected tenant-verifier, got %s", cfg.DefaultTenantID)
+	}
+	if cfg.DB_DSN != "postgres://example" {
+		t.Fatalf("expected DSN override, got %s", cfg.DB_DSN)
+	}
+	if !cfg.UseDBTrustRegistry {
+		t.Fatalf("expected DB trust registry enabled")
+	}
+	if cfg.LogLevel != "warn" {
+		t.Fatalf("expected warn log level, got %s", cfg.LogLevel)
 	}
 }

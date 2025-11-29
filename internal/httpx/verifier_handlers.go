@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bradtumy/credential-service/internal/domain"
+	"github.com/bradtumy/credential-service/internal/metrics"
 )
 
 // VerifyRequest represents a verifier request payload.
@@ -57,8 +58,14 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 		}
 
 		deps := domain.VerifierDependencies{ResolveIssuerPublicKey: func(issuer string) (crypto.PublicKey, error) {
-			if registry != nil && !registry.IsTrustedIssuer(tenantID, issuer) {
-				return nil, domain.ErrUntrustedIssuer
+			if registry != nil {
+				trusted, err := registry.IsTrustedIssuer(r.Context(), tenantID, issuer)
+				if err != nil {
+					return nil, fmt.Errorf("trust lookup: %w", err)
+				}
+				if !trusted {
+					return nil, domain.ErrUntrustedIssuer
+				}
 			}
 			if resolver == nil {
 				return nil, fmt.Errorf("resolver not configured")
@@ -68,14 +75,18 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 
 		chainResult, err := domain.VerifyCredentialChain(tokens, deps, domain.VerificationOptions{ExpectedAudience: req.ExpectedAudience, MaxDelegationDepth: 3}, now())
 		if err != nil {
+			reason := "verification_failed"
 			switch {
 			case errors.Is(err, domain.ErrUntrustedIssuer):
-				WriteError(w, http.StatusForbidden, "untrusted_issuer", err.Error())
+				reason = "untrusted_issuer"
+				WriteError(w, http.StatusForbidden, reason, err.Error())
 			case errors.Is(err, domain.ErrExpiredCredential), errors.Is(err, domain.ErrInvalidSignature), errors.Is(err, domain.ErrUnexpectedAudience), errors.Is(err, domain.ErrIssuedInFuture):
-				WriteError(w, http.StatusUnauthorized, "invalid_credential", err.Error())
+				reason = "invalid_credential"
+				WriteError(w, http.StatusUnauthorized, reason, err.Error())
 			default:
-				WriteError(w, http.StatusBadRequest, "verification_failed", err.Error())
+				WriteError(w, http.StatusBadRequest, reason, err.Error())
 			}
+			metrics.DefaultVerifierMetrics.IncVerificationFailure(reason)
 			return
 		}
 
@@ -85,6 +96,7 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			actingOnBehalfOf = chainResult.RootDelegator
 		}
 
+		metrics.DefaultVerifierMetrics.IncVerificationSuccess("ok")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(VerifyResponse{
 			Valid:            true,
