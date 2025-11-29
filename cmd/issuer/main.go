@@ -1,56 +1,23 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
-	"os"
-
-	"github.com/jackc/pgx/v4/pgxpool"
 
 	"github.com/bradtumy/credential-service/internal/config"
-	"github.com/bradtumy/credential-service/internal/domain"
-	"github.com/bradtumy/credential-service/internal/issuer"
+	"github.com/bradtumy/credential-service/internal/httpx"
+	"github.com/bradtumy/credential-service/internal/keystore"
 )
 
 func main() {
-	cfg := config.Load()
+	cfg := config.LoadIssuerConfigFromEnv()
+	store := keystore.NewMemoryKeyStore()
 
-	baseSchema, err := domain.LoadBaseSchema(cfg.BaseSchemaPath)
-	if err != nil {
-		log.Fatalf("Error loading base schema: %v", err)
+	mux := http.NewServeMux()
+	httpx.RegisterIssuerRoutes(mux, store, cfg)
+
+	log.Printf("Issuer service running on port %s", cfg.HTTPPort)
+	if err := http.ListenAndServe(":"+cfg.HTTPPort, mux); err != nil {
+		log.Fatalf("failed to start server: %v", err)
 	}
-
-	ctx := context.Background()
-	db := connectDB(ctx, cfg.DatabaseURL)
-
-	svc := issuer.NewService(cfg, db, nil)
-	svc.BaseSchema = baseSchema
-
-	go svc.StartCredentialIssuanceWorker(ctx)
-
-	router := issuer.Router(svc)
-
-	log.Printf("Credential issuer service running on port %s...", cfg.HTTPPort)
-	log.Fatal(http.ListenAndServe(":"+cfg.HTTPPort, router))
-}
-
-func connectDB(ctx context.Context, url string) *pgxpool.Pool {
-	if url == "" {
-		log.Println("DATABASE_URL not provided; database operations disabled")
-		return nil
-	}
-
-	db, err := pgxpool.Connect(ctx, url)
-	if err != nil {
-		log.Printf("Unable to connect to database: %v", err)
-		return nil
-	}
-
-	return db
-}
-
-// ensure configs directory exists for local runs
-func init() {
-	_ = os.MkdirAll("configs", 0o755)
 }

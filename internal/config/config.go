@@ -36,3 +36,17 @@ func getenv(key, fallback string) string {
 	}
 	return fallback
 }
+
+// IssuerConfig holds configuration for the issuer service.
+type IssuerConfig struct {
+	HTTPPort        string
+	DefaultTenantID string
+}
+
+// LoadIssuerConfigFromEnv loads issuer configuration from environment variables.
+func LoadIssuerConfigFromEnv() IssuerConfig {
+	return IssuerConfig{
+		HTTPPort:        getenv("ISSUER_HTTP_PORT", "8080"),
+		DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
+	}
+}

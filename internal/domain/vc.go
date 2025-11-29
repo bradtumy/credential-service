@@ -2,23 +2,31 @@ package domain
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// VerifiableCredential structure following W3C schema.
+// VerifiableCredential represents a simplified VC model used across the service.
 type VerifiableCredential struct {
-	Context           []string               `json:"@context"`
-	Type              []string               `json:"type"`
+	Context           []string               `json:"@context,omitempty"`
+	Type              []string               `json:"type,omitempty"`
 	ID                string                 `json:"id"`
 	Issuer            string                 `json:"issuer"`
-	IssuanceDate      string                 `json:"issuanceDate"`
-	ExpirationDate    string                 `json:"expirationDate"`
-	CredentialSubject map[string]interface{} `json:"credentialSubject"`
+	Subject           string                 `json:"subject,omitempty"`
+	IssuanceDate      string                 `json:"issuanceDate,omitempty"`
+	ExpirationDate    string                 `json:"expirationDate,omitempty"`
+	IssuedAt          time.Time              `json:"issued_at,omitempty"`
+	ExpiresAt         time.Time              `json:"expires_at,omitempty"`
+	Claims            map[string]interface{} `json:"claims,omitempty"`
+	CredentialSubject map[string]interface{} `json:"credentialSubject,omitempty"`
 	Proof             Proof                  `json:"proof,omitempty"`
 }
 
@@ -147,6 +155,62 @@ func VerifyCredential(vc VerifiableCredential) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// IssueBasicCredential creates and signs a minimal VC using a compact JWS structure.
+func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, ttl time.Duration, claims map[string]interface{}) (string, error) {
+	if issuerDID == "" || subjectDID == "" {
+		return "", errors.New("issuer and subject DIDs are required")
+	}
+	if signer == nil {
+		return "", errors.New("signer is required")
+	}
+	if ttl <= 0 {
+		return "", errors.New("ttl must be positive")
+	}
+
+	issuedAt := time.Now().UTC()
+	vc := VerifiableCredential{
+		ID:        uuid.NewString(),
+		Issuer:    issuerDID,
+		Subject:   subjectDID,
+		IssuedAt:  issuedAt,
+		ExpiresAt: issuedAt.Add(ttl),
+		Claims:    claims,
+	}
+
+	header := map[string]string{
+		"alg": "EdDSA",
+		"typ": "JWT",
+	}
+
+	headerSegment, err := encodeSegment(header)
+	if err != nil {
+		return "", err
+	}
+
+	payloadSegment, err := encodeSegment(vc)
+	if err != nil {
+		return "", err
+	}
+
+	signingInput := headerSegment + "." + payloadSegment
+	signature, err := signer.Sign(rand.Reader, []byte(signingInput), crypto.Hash(0))
+	if err != nil {
+		return "", fmt.Errorf("sign payload: %w", err)
+	}
+
+	signatureSegment := base64.RawURLEncoding.EncodeToString(signature)
+
+	return signingInput + "." + signatureSegment, nil
+}
+
+func encodeSegment(data interface{}) (string, error) {
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("marshal segment: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(jsonBytes), nil
 }
 
 // osReadFile is abstracted for testing.

@@ -6,27 +6,57 @@ import (
 	"testing"
 )
 
-type fakeKeyStore struct {
-	key crypto.Signer
+func TestNewMemoryKeyStore(t *testing.T) {
+	store := NewMemoryKeyStore()
+	if store == nil {
+		t.Fatalf("expected keystore instance")
+	}
 }
 
-func (f fakeKeyStore) GetSigningKey(_ string) (crypto.Signer, error) {
-	return f.key, nil
+func TestMemoryKeyStoreReturnsSameKeyForTenant(t *testing.T) {
+	store := NewMemoryKeyStore()
+
+	signer1, err := store.GetSigningKey("tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	signer2, err := store.GetSigningKey("tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	message := []byte("hello world")
+	signature, err := signer1.Sign(nil, message, ed25519Options())
+	if err != nil {
+		t.Fatalf("signing failed: %v", err)
+	}
+
+	pubKey, ok := signer2.Public().(ed25519.PublicKey)
+	if !ok {
+		t.Fatalf("unexpected public key type")
+	}
+
+	if !ed25519.Verify(pubKey, message, signature) {
+		t.Fatalf("signature verification failed")
+	}
 }
 
-func TestKeyStoreContract(t *testing.T) {
-	_, priv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("failed to generate key: %v", err)
-	}
+func TestMemoryKeyStoreProvidesUniqueKeysPerTenant(t *testing.T) {
+	store := NewMemoryKeyStore()
 
-	ks := fakeKeyStore{key: priv}
-	signer, err := ks.GetSigningKey("tenant")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	signer1, _ := store.GetSigningKey("tenant-1")
+	signer2, _ := store.GetSigningKey("tenant-2")
 
-	if signer == nil {
-		t.Fatal("expected signer to be returned")
+	pub1 := signer1.Public().(ed25519.PublicKey)
+	pub2 := signer2.Public().(ed25519.PublicKey)
+
+	if string(pub1) == string(pub2) {
+		t.Fatalf("expected different keys for different tenants")
 	}
+}
+
+// ed25519Options returns nil to satisfy the crypto.Signer opts for Ed25519.
+func ed25519Options() crypto.SignerOpts {
+	return crypto.Hash(0)
 }
