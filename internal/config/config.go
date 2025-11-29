@@ -41,6 +41,7 @@ func getenv(key, fallback string) string {
 type IssuerConfig struct {
 	HTTPPort        string
 	DefaultTenantID string
+	LogLevel        string
 }
 
 // LoadIssuerConfigFromEnv loads issuer configuration from environment variables.
@@ -48,19 +49,26 @@ func LoadIssuerConfigFromEnv() IssuerConfig {
 	return IssuerConfig{
 		HTTPPort:        getenv("ISSUER_HTTP_PORT", "8080"),
 		DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
+		LogLevel:        getenv("ISSUER_LOG_LEVEL", "info"),
 	}
 }
 
 // VerifierConfig holds configuration for the verifier service.
 type VerifierConfig struct {
-	HTTPPort        string
-	DefaultTenantID string
+	HTTPPort           string
+	DefaultTenantID    string
+	DB_DSN             string
+	UseDBTrustRegistry bool
+	LogLevel           string
 }
 
 // LoadVerifierConfigFromEnv loads verifier configuration from environment variables.
 func LoadVerifierConfigFromEnv() VerifierConfig {
 	return VerifierConfig{
-		HTTPPort:        getenv("VERIFIER_HTTP_PORT", "8081"),
-		DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
+		HTTPPort:           getenv("VERIFIER_HTTP_PORT", "8081"),
+		DefaultTenantID:    getenv("DEFAULT_TENANT_ID", "default-tenant"),
+		DB_DSN:             getenv("VERIFIER_DB_DSN", ""),
+		UseDBTrustRegistry: getenv("VERIFIER_USE_DB_TRUST_REGISTRY", "false") == "true",
+		LogLevel:           getenv("VERIFIER_LOG_LEVEL", "info"),
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bradtumy/credential-service/internal/domain"
+	"github.com/bradtumy/credential-service/internal/metrics"
 )
 
 // GatewayAuthorizeRequest is the payload expected by the gateway authorize endpoint.
@@ -59,8 +60,14 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 		}
 
 		deps := domain.VerifierDependencies{ResolveIssuerPublicKey: func(issuer string) (crypto.PublicKey, error) {
-			if registry != nil && !registry.IsTrustedIssuer(tenantID, issuer) {
-				return nil, domain.ErrUntrustedIssuer
+			if registry != nil {
+				trusted, err := registry.IsTrustedIssuer(r.Context(), tenantID, issuer)
+				if err != nil {
+					return nil, fmt.Errorf("trust lookup: %w", err)
+				}
+				if !trusted {
+					return nil, domain.ErrUntrustedIssuer
+				}
 			}
 			if resolver == nil {
 				return nil, fmt.Errorf("resolver not configured")
@@ -71,6 +78,7 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 		chainResult, err := domain.VerifyCredentialChain(tokens, deps, domain.VerificationOptions{ExpectedAudience: req.ExpectedAudience, MaxDelegationDepth: 3}, now())
 		if err != nil {
 			reason := mapVerificationErrorToReason(err)
+			metrics.DefaultVerifierMetrics.IncVerificationFailure(reason)
 			writeDecision(w, GatewayAuthorizeResponse{Allowed: false, Reason: reason})
 			return
 		}
@@ -95,6 +103,7 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 			response.SyntheticJWT = jwt.Token
 		}
 
+		metrics.DefaultVerifierMetrics.IncVerificationSuccess("ok")
 		writeDecision(w, response)
 	})
 }

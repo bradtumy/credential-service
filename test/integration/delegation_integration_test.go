@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"encoding/json"
 	"net/http"
@@ -37,7 +38,7 @@ func TestDelegationIntegration(t *testing.T) {
 
 	// Verifier server
 	registry := domain.NewMemoryTrustRegistry()
-	registry.AddTrustedIssuer(verifierCfg.DefaultTenantID, issuerDID)
+	registry.AddTrustedIssuer(context.Background(), verifierCfg.DefaultTenantID, issuerDID)
 	resolver := func(issuer string) (crypto.PublicKey, error) {
 		if issuer != issuerDID {
 			return nil, domain.ErrUntrustedIssuer

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -32,7 +33,7 @@ func TestVerifierIntegration(t *testing.T) {
 	}
 
 	registry := domain.NewMemoryTrustRegistry()
-	registry.AddTrustedIssuer(cfg.DefaultTenantID, issuerDID)
+	registry.AddTrustedIssuer(context.Background(), cfg.DefaultTenantID, issuerDID)
 
 	keyMap := map[string]crypto.PublicKey{issuerDID: signer.Public()}
 	resolver := func(issuer string) (crypto.PublicKey, error) {
@@ -84,7 +85,7 @@ func TestVerifierIntegrationRejectsTamperedToken(t *testing.T) {
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
 	registry := domain.NewMemoryTrustRegistry()
-	registry.AddTrustedIssuer(cfg.DefaultTenantID, issuerDID)
+	registry.AddTrustedIssuer(context.Background(), cfg.DefaultTenantID, issuerDID)
 
 	keyMap := map[string]crypto.PublicKey{issuerDID: priv.Public()}
 	resolver := func(issuer string) (crypto.PublicKey, error) {
