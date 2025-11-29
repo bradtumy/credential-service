@@ -10,6 +10,7 @@ import (
 
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/metrics"
+	"github.com/bradtumy/credential-service/internal/version"
 )
 
 // GatewayAuthorizeRequest is the payload expected by the gateway authorize endpoint.
@@ -30,6 +31,7 @@ type GatewayAuthorizeResponse struct {
 	Reason           string                 `json:"reason,omitempty"`
 	SyntheticJWT     string                 `json:"synthetic_jwt,omitempty"`
 	Agent            *AgentContext          `json:"agent,omitempty"`
+	APIVersion       string                 `json:"api_version"`
 }
 
 // AgentContext surfaces on-behalf-of metadata for agent invocations.
@@ -47,13 +49,13 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 
 	mux.HandleFunc("/v1/gateway/authorize", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 
 		var req GatewayAuthorizeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			WriteError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			WriteAPIError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
 			return
 		}
 
@@ -63,7 +65,7 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 		}
 
 		if len(tokens) == 0 {
-			WriteError(w, http.StatusBadRequest, "invalid_request", "credential is required")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "credential is required")
 			return
 		}
 
@@ -87,7 +89,7 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 		if err != nil {
 			reason := mapVerificationErrorToReason(err)
 			metrics.DefaultVerifierMetrics.IncVerificationFailure(reason)
-			writeDecision(w, GatewayAuthorizeResponse{Allowed: false, Reason: reason})
+			writeDecision(w, GatewayAuthorizeResponse{Allowed: false, Reason: reason, APIVersion: version.APIVersion})
 			return
 		}
 
@@ -112,12 +114,13 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 			Claims:           decision.Claims,
 			Reason:           decision.Reason,
 			Agent:            agentContext,
+			APIVersion:       version.APIVersion,
 		}
 
 		if req.WantSyntheticJWT {
 			jwt, err := domain.BuildSyntheticJWT(decision, signingKey, jwtIssuer, 15*time.Minute)
 			if err != nil {
-				writeDecision(w, GatewayAuthorizeResponse{Allowed: false, Reason: "jwt_error"})
+				writeDecision(w, GatewayAuthorizeResponse{Allowed: false, Reason: "jwt_error", APIVersion: version.APIVersion})
 				return
 			}
 			response.SyntheticJWT = jwt.Token

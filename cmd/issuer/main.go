@@ -17,6 +17,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	httpx.RegisterIssuerRoutes(mux, store, cfg)
+	httpx.RegisterHealthRoutes(mux, nil)
 
 	handler := httpx.RequestContext(httpx.LoggingMiddleware(mux))
 

@@ -1,27 +1,28 @@
 package httpx
 
 import (
-"bytes"
-"context"
-"crypto"
-"crypto/ed25519"
-"encoding/base64"
-"encoding/json"
-"net/http"
-"net/http/httptest"
-"strings"
-"testing"
-"time"
+	"bytes"
+	"context"
+	"crypto"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
 
-"github.com/bradtumy/credential-service/internal/domain"
+	"github.com/bradtumy/credential-service/internal/domain"
+	"github.com/bradtumy/credential-service/internal/version"
 )
 
 func TestVerifierHandlerSuccess(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
-registry := domain.NewMemoryTrustRegistry()
-registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
+	registry := domain.NewMemoryTrustRegistry()
+	registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
 
 	resolver := func(issuer string) (crypto.PublicKey, error) {
 		if issuer != issuerDID {
@@ -62,14 +63,18 @@ registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
 	if resp.DelegationDepth != 0 || resp.ActingOnBehalfOf != resp.Subject {
 		t.Fatalf("expected delegation metadata to mirror subject, got %+v", resp)
 	}
+
+	if resp.APIVersion != version.APIVersion {
+		t.Fatalf("expected api version %s, got %s", version.APIVersion, resp.APIVersion)
+	}
 }
 
 func TestVerifierHandlerDelegatedCredential(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
-registry := domain.NewMemoryTrustRegistry()
-registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
+	registry := domain.NewMemoryTrustRegistry()
+	registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
 
 	resolver := func(issuer string) (crypto.PublicKey, error) {
 		if issuer != issuerDID {
@@ -111,14 +116,18 @@ registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
 	if resp.Subject != "did:jwk:agent" || resp.ActingOnBehalfOf != "did:jwk:parent" || resp.DelegationDepth != 1 {
 		t.Fatalf("unexpected delegation response: %+v", resp)
 	}
+
+	if resp.APIVersion != version.APIVersion {
+		t.Fatalf("expected api version %s, got %s", version.APIVersion, resp.APIVersion)
+	}
 }
 
 func TestVerifierHandlerExpiredCredential(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
-registry := domain.NewMemoryTrustRegistry()
-registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
+	registry := domain.NewMemoryTrustRegistry()
+	registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
 
 	resolver := func(string) (crypto.PublicKey, error) {
 		return priv.Public(), nil

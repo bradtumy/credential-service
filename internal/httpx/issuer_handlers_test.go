@@ -12,6 +12,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/version"
 )
 
 func TestIssueHandlerSuccess(t *testing.T) {
@@ -45,6 +46,10 @@ func TestIssueHandlerSuccess(t *testing.T) {
 		t.Fatalf("expected credential in response")
 	}
 
+	if resp.APIVersion != version.APIVersion {
+		t.Fatalf("expected api version %s, got %s", version.APIVersion, resp.APIVersion)
+	}
+
 	if !strings.Contains(resp.Credential, ".") {
 		t.Fatalf("expected jwt-like token")
 	}
@@ -66,6 +71,14 @@ func TestIssueHandlerMissingSubject(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+
+	var errResp APIError
+	if err := json.NewDecoder(recorder.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if errResp.Error == "" || errResp.APIVersion != version.APIVersion {
+		t.Fatalf("unexpected error response: %+v", errResp)
 	}
 }
 
@@ -113,6 +126,10 @@ func TestDelegateHandlerSuccess(t *testing.T) {
 
 	if resp.Credential == "" {
 		t.Fatalf("expected delegated credential")
+	}
+
+	if resp.APIVersion != version.APIVersion {
+		t.Fatalf("expected api version %s, got %s", version.APIVersion, resp.APIVersion)
 	}
 }
 
