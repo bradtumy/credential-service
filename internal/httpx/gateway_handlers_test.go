@@ -35,9 +35,9 @@ func TestGatewayAuthorizeAllow(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, time.Now)
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
 
-	payload := GatewayAuthorizeRequest{Credential: token, WantSyntheticJWT: true}
+	payload := GatewayAuthorizeRequest{Credential: token, WantSyntheticJWT: true, Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
 
 	rr := httptest.NewRecorder()
@@ -82,9 +82,9 @@ func TestGatewayAuthorizeAgentContext(t *testing.T) {
 	childToken, _ := domain.IssueBasicCredential(issuerDID, "did:example:agent", priv, 2*time.Minute, map[string]interface{}{"scope": []string{"read"}})
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, time.Now)
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
 
-	payload := GatewayAuthorizeRequest{Credentials: []string{parentToken, childToken}, WantSyntheticJWT: true}
+	payload := GatewayAuthorizeRequest{Credentials: []string{parentToken, childToken}, WantSyntheticJWT: true, Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
 
 	rr := httptest.NewRecorder()
@@ -129,11 +129,11 @@ func TestGatewayAuthorizeDenyExpired(t *testing.T) {
 	cred := decodeCredentialForHandlerTest(t, token)
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, func() time.Time {
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, nil, nil, nil, func() time.Time {
 		return cred.ExpiresAt.Add(time.Second)
 	})
 
-	payload := GatewayAuthorizeRequest{Credential: token}
+	payload := GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
 
 	rr := httptest.NewRecorder()
@@ -168,9 +168,9 @@ func TestGatewayAuthorizeUntrustedIssuer(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, time.Now)
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
 
-	payload := GatewayAuthorizeRequest{Credential: token}
+	payload := GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
 
 	rr := httptest.NewRecorder()
@@ -187,4 +187,160 @@ func TestGatewayAuthorizeUntrustedIssuer(t *testing.T) {
 	if resp.Allowed || resp.Reason != "untrusted_issuer" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
+}
+
+func TestGatewayAuthorizeMissingCredential(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", nil, nil, nil, time.Now)
+
+	payload := GatewayAuthorizeRequest{Resource: "orders", Action: "read"}
+	body, _ := json.Marshal(payload)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestGatewayAuthorizeMissingResource(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", nil, nil, nil, time.Now)
+
+	payload := GatewayAuthorizeRequest{Credential: "token", Action: "read"}
+	body, _ := json.Marshal(payload)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestGatewayAuthorizeRateLimited(t *testing.T) {
+	limiter := &stubLimiter{allow: false}
+	mux := http.NewServeMux()
+	RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", nil, limiter, nil, time.Now)
+
+	payload := GatewayAuthorizeRequest{Credential: "token", Resource: "orders", Action: "read"}
+	body, _ := json.Marshal(payload)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", rr.Code)
+	}
+}
+
+func TestGatewayAuthorizeCacheHitSkipsVerification(t *testing.T) {
+	cache := &recordingCache{}
+	mux := http.NewServeMux()
+	RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", cache, nil, nil, time.Now)
+
+	// Prime cache with allowed decision.
+	cached := GatewayAuthorizeResponse{Allowed: true, Subject: "did:example:cached", TenantID: "tenant", APIVersion: version.APIVersion}
+	key := buildCacheKey([]string{"cached-token"}, "tenant", "orders", "read", "", false)
+	payload, _ := json.Marshal(cached)
+	_ = cache.Set(key, payload, time.Minute)
+
+	reqBody, _ := json.Marshal(GatewayAuthorizeRequest{Credential: "cached-token", Resource: "orders", Action: "read"})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(reqBody))
+
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	if cache.getCalls == 0 {
+		t.Fatalf("expected cache get to be invoked")
+	}
+}
+
+func TestGatewayAuthorizeCachesDecision(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
+
+	registry := domain.NewMemoryTrustRegistry()
+	registry.AddTrustedIssuer(context.Background(), "tenant", issuerDID)
+
+	resolverCalls := 0
+	resolver := func(issuer string) (crypto.PublicKey, error) {
+		resolverCalls++
+		return priv.Public(), nil
+	}
+
+	token, _ := domain.IssueBasicCredential(issuerDID, "did:example:agent", priv, 5*time.Minute, map[string]interface{}{"scope": "read:orders"})
+
+	cache := &recordingCache{}
+	mux := http.NewServeMux()
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, cache, nil, nil, time.Now)
+
+	body, _ := json.Marshal(GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"})
+
+	// First request populates cache.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+	mux.ServeHTTP(rr, req)
+
+	if cache.setCalls == 0 {
+		t.Fatalf("expected cache set to be invoked")
+	}
+
+	resolverCallsAfterFirst := resolverCalls
+
+	// Second request should hit cache and avoid resolver.
+	rr2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/gateway/authorize", bytes.NewReader(body))
+	mux.ServeHTTP(rr2, req2)
+
+	if resolverCalls != resolverCallsAfterFirst {
+		t.Fatalf("expected resolver calls to remain constant on cache hit")
+	}
+}
+
+type stubLimiter struct {
+	allow bool
+}
+
+func (s *stubLimiter) Allow(string) (bool, error) {
+	return s.allow, nil
+}
+
+type recordingCache struct {
+	stored   map[string][]byte
+	getCalls int
+	setCalls int
+}
+
+func (c *recordingCache) Get(key string) ([]byte, bool, error) {
+	c.getCalls++
+	if c.stored == nil {
+		return nil, false, nil
+	}
+	val, ok := c.stored[key]
+	if !ok {
+		return nil, false, nil
+	}
+	return val, true, nil
+}
+
+func (c *recordingCache) Set(key string, value []byte, ttl time.Duration) error {
+	_ = ttl
+	if c.stored == nil {
+		c.stored = map[string][]byte{}
+	}
+	c.stored[key] = value
+	c.setCalls++
+	return nil
 }

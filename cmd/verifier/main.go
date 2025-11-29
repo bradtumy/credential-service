@@ -11,12 +11,14 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/bradtumy/credential-service/internal/cache"
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
 	"github.com/bradtumy/credential-service/internal/keystore"
 	"github.com/bradtumy/credential-service/internal/logging"
 	"github.com/bradtumy/credential-service/internal/policy"
+	"github.com/bradtumy/credential-service/internal/ratelimit"
 	"github.com/bradtumy/credential-service/internal/storage"
 	"github.com/bradtumy/credential-service/internal/tenant"
 )
@@ -84,7 +86,22 @@ func main() {
 
 	mux := http.NewServeMux()
 	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, time.Now)
-	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policy.NoOpEngine{}, cfg.DefaultTenantID, signer, issuerDID, time.Now)
+	var decisionCache cache.DecisionCache = cache.NoopDecisionCache{}
+	if cfg.GatewayCache && cfg.RedisAddr != "" {
+		redisCache, err := cache.NewRedisDecisionCacheFromEnv()
+		if err != nil {
+			log.Printf("gateway cache disabled: %v", err)
+		} else {
+			decisionCache = redisCache
+		}
+	}
+
+	var limiter ratelimit.Limiter = ratelimit.NoopLimiter{}
+	if cfg.RateLimitEnabled {
+		log.Printf("rate limiting enabled but using noop limiter; configure backend to enforce limits")
+	}
+
+	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policy.NoOpEngine{}, cfg.DefaultTenantID, signer, issuerDID, decisionCache, limiter, nil, time.Now)
 	httpx.RegisterHealthRoutes(mux, readiness)
 
 	handler := httpx.RequestContext(httpx.TenantMiddleware(tenantResolver, httpx.LoggingMiddleware(mux)))

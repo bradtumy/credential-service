@@ -63,7 +63,7 @@ func TestSmokeFlow(t *testing.T) {
 
 	verifierMux := http.NewServeMux()
 	httpx.RegisterVerifierRoutes(verifierMux, resolver, registry, issuerCfg.DefaultTenantID, time.Now)
-	httpx.RegisterGatewayRoutes(verifierMux, resolver, registry, nil, issuerCfg.DefaultTenantID, signer, issuerDID, time.Now)
+	httpx.RegisterGatewayRoutes(verifierMux, resolver, registry, nil, issuerCfg.DefaultTenantID, signer, issuerDID, nil, nil, nil, time.Now)
 	verifierServer := httptest.NewServer(verifierMux)
 	t.Cleanup(verifierServer.Close)
 
@@ -71,6 +71,8 @@ func TestSmokeFlow(t *testing.T) {
 		Credentials:      []string{parentCred, delegated},
 		ExpectedAudience: "sample-api",
 		WantSyntheticJWT: true,
+		Resource:         "sample-api",
+		Action:           "invoke",
 	}
 	body, _ := json.Marshal(authzPayload)
 
