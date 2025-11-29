@@ -10,6 +10,7 @@ import (
 
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/metrics"
+	"github.com/bradtumy/credential-service/internal/policy"
 	"github.com/bradtumy/credential-service/internal/version"
 )
 
@@ -31,6 +32,7 @@ type GatewayAuthorizeResponse struct {
 	Reason           string                 `json:"reason,omitempty"`
 	SyntheticJWT     string                 `json:"synthetic_jwt,omitempty"`
 	Agent            *AgentContext          `json:"agent,omitempty"`
+	TenantID         string                 `json:"tenant_id,omitempty"`
 	APIVersion       string                 `json:"api_version"`
 }
 
@@ -42,9 +44,13 @@ type AgentContext struct {
 }
 
 // RegisterGatewayRoutes wires gateway-specific routes into the provided mux.
-func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.PublicKey, error), registry domain.TrustRegistry, tenantID string, signingKey crypto.Signer, jwtIssuer string, now func() time.Time) {
+func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.PublicKey, error), registry domain.TrustRegistry, policyEngine policy.Engine, defaultTenantID string, signingKey crypto.Signer, jwtIssuer string, now func() time.Time) {
 	if now == nil {
 		now = time.Now
+	}
+
+	if policyEngine == nil {
+		policyEngine = policy.NoOpEngine{}
 	}
 
 	mux.HandleFunc("/v1/gateway/authorize", func(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +73,11 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 		if len(tokens) == 0 {
 			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "credential is required")
 			return
+		}
+
+		tenantID := TenantIDFromContext(r.Context())
+		if tenantID == "" {
+			tenantID = defaultTenantID
 		}
 
 		deps := domain.VerifierDependencies{ResolveIssuerPublicKey: func(issuer string) (crypto.PublicKey, error) {
@@ -94,6 +105,29 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 		}
 
 		decision := domain.BuildAuthzDecisionFromVerification(chainResult)
+		evalInput := policy.EvaluationInput{
+			TenantID:         tenantID,
+			Subject:          decision.SubjectDID,
+			ActingOnBehalfOf: decision.ActingOnBehalfOf,
+			Scope:            domain.ScopeFromClaims(decision.Claims),
+			Claims:           decision.Claims,
+			Resource:         req.ExpectedAudience,
+			Action:           "gateway_authorize",
+			Context: map[string]any{
+				"delegation_depth": chainResult.DelegationDepth,
+				"path":             r.URL.Path,
+			},
+		}
+
+		policyResult, err := policyEngine.Evaluate(evalInput)
+		if err != nil {
+			WriteAPIError(w, http.StatusInternalServerError, "policy_error", err.Error())
+			return
+		}
+		if !policyResult.Allow {
+			WriteAPIError(w, http.StatusForbidden, "policy_denied", policyResult.Reason)
+			return
+		}
 		var agentContext *AgentContext
 		if len(chainResult.Credentials) > 1 {
 			parent := chainResult.Credentials[len(chainResult.Credentials)-2]
@@ -114,6 +148,7 @@ func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pub
 			Claims:           decision.Claims,
 			Reason:           decision.Reason,
 			Agent:            agentContext,
+			TenantID:         tenantID,
 			APIVersion:       version.APIVersion,
 		}
 

@@ -32,7 +32,7 @@ type VerifyResponse struct {
 }
 
 // RegisterVerifierRoutes wires verifier HTTP routes into the provided mux.
-func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.PublicKey, error), registry domain.TrustRegistry, tenantID string, now func() time.Time) {
+func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.PublicKey, error), registry domain.TrustRegistry, defaultTenantID string, now func() time.Time) {
 	if now == nil {
 		now = time.Now
 	}
@@ -57,6 +57,11 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 		if len(tokens) == 0 {
 			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "credential is required")
 			return
+		}
+
+		tenantID := TenantIDFromContext(r.Context())
+		if tenantID == "" {
+			tenantID = defaultTenantID
 		}
 
 		deps := domain.VerifierDependencies{ResolveIssuerPublicKey: func(issuer string) (crypto.PublicKey, error) {

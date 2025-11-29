@@ -16,7 +16,9 @@ import (
 	"github.com/bradtumy/credential-service/internal/httpx"
 	"github.com/bradtumy/credential-service/internal/keystore"
 	"github.com/bradtumy/credential-service/internal/logging"
+	"github.com/bradtumy/credential-service/internal/policy"
 	"github.com/bradtumy/credential-service/internal/storage"
+	"github.com/bradtumy/credential-service/internal/tenant"
 )
 
 func main() {
@@ -28,6 +30,9 @@ func main() {
 		db            *sql.DB
 	)
 
+	tenancyMode := tenant.Mode(cfg.TenancyMode)
+	var tenantStore tenant.Store = tenant.NewMemoryStore()
+
 	if cfg.UseDBTrustRegistry && cfg.DB_DSN != "" {
 		var err error
 		db, err = sql.Open("postgres", cfg.DB_DSN)
@@ -35,7 +40,14 @@ func main() {
 			log.Fatalf("connect to database: %v", err)
 		}
 		trustRegistry = storage.NewPGTrustRegistry(db)
+		tenantStore = tenant.NewPGTenantStore(db)
 	}
+
+	if err := tenantStore.UpsertTenant(context.Background(), domain.Tenant{ID: cfg.DefaultTenantID, Name: "default", Enabled: true}); err != nil {
+		log.Fatalf("seed default tenant: %v", err)
+	}
+
+	tenantResolver := tenant.Resolver{Mode: tenancyMode, DefaultTenantID: cfg.DefaultTenantID, Store: tenantStore}
 
 	issuerKeys := make(map[string]crypto.PublicKey)
 
@@ -72,10 +84,10 @@ func main() {
 
 	mux := http.NewServeMux()
 	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, time.Now)
-	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, signer, issuerDID, time.Now)
+	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policy.NoOpEngine{}, cfg.DefaultTenantID, signer, issuerDID, time.Now)
 	httpx.RegisterHealthRoutes(mux, readiness)
 
-	handler := httpx.RequestContext(httpx.LoggingMiddleware(mux))
+	handler := httpx.RequestContext(httpx.TenantMiddleware(tenantResolver, httpx.LoggingMiddleware(mux)))
 
 	log.Printf("Verifier service running on port %s...", cfg.HTTPPort)
 	log.Fatal(http.ListenAndServe(":"+cfg.HTTPPort, handler))

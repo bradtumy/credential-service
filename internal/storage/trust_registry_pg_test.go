@@ -18,7 +18,7 @@ func TestPGTrustRegistry_AddTrustedIssuerIdempotent(t *testing.T) {
 
 	registry := NewPGTrustRegistry(mockDB)
 
-	insertRegex := regexp.QuoteMeta("INSERT INTO trusted_issuers (tenant_id, issuer_did) VALUES ($1, $2) ON CONFLICT (tenant_id, issuer_did) DO NOTHING")
+        insertRegex := regexp.QuoteMeta("INSERT INTO tenant_trusted_issuers (tenant_id, issuer_did, metadata) VALUES ($1, $2, '{}') ON CONFLICT (tenant_id, issuer_did) DO UPDATE SET metadata = EXCLUDED.metadata")
 	mock.ExpectExec(insertRegex).
 		WithArgs("tenant-1", "did:example:issuer").
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -47,7 +47,7 @@ func TestPGTrustRegistry_IsTrustedIssuer(t *testing.T) {
 
 	registry := NewPGTrustRegistry(mockDB)
 
-	selectRegex := regexp.QuoteMeta("SELECT 1 FROM trusted_issuers WHERE tenant_id = $1 AND issuer_did = $2")
+        selectRegex := regexp.QuoteMeta("SELECT 1 FROM tenant_trusted_issuers WHERE tenant_id = $1 AND issuer_did = $2")
 
 	mock.ExpectQuery(selectRegex).
 		WithArgs("tenant-1", "did:example:issuer").

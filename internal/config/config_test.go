@@ -15,6 +15,9 @@ func TestLoadIssuerConfigFromEnvDefaults(t *testing.T) {
 	if cfg.DefaultTenantID != "default-tenant" {
 		t.Fatalf("expected default tenant id, got %s", cfg.DefaultTenantID)
 	}
+	if cfg.TenancyMode != "single" {
+		t.Fatalf("expected default tenancy mode single, got %s", cfg.TenancyMode)
+	}
 	if cfg.LogLevel != "info" {
 		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
 	}
@@ -24,6 +27,7 @@ func TestLoadIssuerConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("ISSUER_HTTP_PORT", "9090")
 	t.Setenv("DEFAULT_TENANT_ID", "tenant-123")
 	t.Setenv("ISSUER_LOG_LEVEL", "debug")
+	t.Setenv("TENANCY_MODE", "multi")
 
 	cfg := LoadIssuerConfigFromEnv()
 
@@ -32,6 +36,9 @@ func TestLoadIssuerConfigFromEnvOverrides(t *testing.T) {
 	}
 	if cfg.DefaultTenantID != "tenant-123" {
 		t.Fatalf("expected tenant-123, got %s", cfg.DefaultTenantID)
+	}
+	if cfg.TenancyMode != "multi" {
+		t.Fatalf("expected tenancy mode override, got %s", cfg.TenancyMode)
 	}
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("expected debug log level, got %s", cfg.LogLevel)
@@ -53,6 +60,9 @@ func TestLoadVerifierConfigFromEnvDefaults(t *testing.T) {
 	if cfg.DefaultTenantID != "default-tenant" {
 		t.Fatalf("expected default tenant id, got %s", cfg.DefaultTenantID)
 	}
+	if cfg.TenancyMode != "single" {
+		t.Fatalf("expected default tenancy mode single, got %s", cfg.TenancyMode)
+	}
 	if cfg.DB_DSN != "" {
 		t.Fatalf("expected empty DB DSN, got %s", cfg.DB_DSN)
 	}
@@ -70,6 +80,7 @@ func TestLoadVerifierConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("VERIFIER_DB_DSN", "postgres://example")
 	t.Setenv("VERIFIER_USE_DB_TRUST_REGISTRY", "true")
 	t.Setenv("VERIFIER_LOG_LEVEL", "warn")
+	t.Setenv("TENANCY_MODE", "multi")
 
 	cfg := LoadVerifierConfigFromEnv()
 
@@ -78,6 +89,9 @@ func TestLoadVerifierConfigFromEnvOverrides(t *testing.T) {
 	}
 	if cfg.DefaultTenantID != "tenant-verifier" {
 		t.Fatalf("expected tenant-verifier, got %s", cfg.DefaultTenantID)
+	}
+	if cfg.TenancyMode != "multi" {
+		t.Fatalf("expected multi tenancy mode, got %s", cfg.TenancyMode)
 	}
 	if cfg.DB_DSN != "postgres://example" {
 		t.Fatalf("expected DSN override, got %s", cfg.DB_DSN)
