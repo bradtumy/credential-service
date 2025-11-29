@@ -59,7 +59,12 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 			return
 		}
 
-		signer, err := store.GetSigningKey(cfg.DefaultTenantID)
+                tenantID := TenantIDFromContext(r.Context())
+                if tenantID == "" {
+                        tenantID = cfg.DefaultTenantID
+                }
+
+                signer, err := store.GetSigningKey(tenantID)
 		if err != nil {
 			WriteAPIError(w, http.StatusInternalServerError, "keystore_error", err.Error())
 			return
@@ -108,7 +113,12 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 			return
 		}
 
-		signer, err := store.GetSigningKey(cfg.DefaultTenantID)
+                tenantID := TenantIDFromContext(r.Context())
+                if tenantID == "" {
+                        tenantID = cfg.DefaultTenantID
+                }
+
+                signer, err := store.GetSigningKey(tenantID)
 		if err != nil {
 			WriteAPIError(w, http.StatusInternalServerError, "keystore_error", err.Error())
 			return

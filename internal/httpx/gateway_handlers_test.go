@@ -35,7 +35,7 @@ func TestGatewayAuthorizeAllow(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, "tenant", priv, issuerDID, time.Now)
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, time.Now)
 
 	payload := GatewayAuthorizeRequest{Credential: token, WantSyntheticJWT: true}
 	body, _ := json.Marshal(payload)
@@ -82,7 +82,7 @@ func TestGatewayAuthorizeAgentContext(t *testing.T) {
 	childToken, _ := domain.IssueBasicCredential(issuerDID, "did:example:agent", priv, 2*time.Minute, map[string]interface{}{"scope": []string{"read"}})
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, "tenant", priv, issuerDID, time.Now)
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, time.Now)
 
 	payload := GatewayAuthorizeRequest{Credentials: []string{parentToken, childToken}, WantSyntheticJWT: true}
 	body, _ := json.Marshal(payload)
@@ -129,7 +129,7 @@ func TestGatewayAuthorizeDenyExpired(t *testing.T) {
 	cred := decodeCredentialForHandlerTest(t, token)
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, "tenant", priv, issuerDID, func() time.Time {
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, func() time.Time {
 		return cred.ExpiresAt.Add(time.Second)
 	})
 
@@ -168,7 +168,7 @@ func TestGatewayAuthorizeUntrustedIssuer(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, "tenant", priv, issuerDID, time.Now)
+	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, time.Now)
 
 	payload := GatewayAuthorizeRequest{Credential: token}
 	body, _ := json.Marshal(payload)
