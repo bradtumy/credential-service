@@ -1,0 +1,131 @@
+package httpx
+
+import (
+	"crypto"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/bradtumy/credential-service/internal/domain"
+)
+
+// GatewayAuthorizeRequest is the payload expected by the gateway authorize endpoint.
+type GatewayAuthorizeRequest struct {
+	Credential       string   `json:"credential"`
+	Credentials      []string `json:"credentials"`
+	ExpectedAudience string   `json:"expected_audience"`
+	WantSyntheticJWT bool     `json:"want_synthetic_jwt"`
+}
+
+// GatewayAuthorizeResponse is returned to gateways or reverse proxies.
+type GatewayAuthorizeResponse struct {
+	Allowed          bool                   `json:"allowed"`
+	Subject          string                 `json:"subject,omitempty"`
+	ActingOnBehalfOf string                 `json:"acting_on_behalf_of,omitempty"`
+	DelegationDepth  int                    `json:"delegation_depth,omitempty"`
+	Claims           map[string]interface{} `json:"claims,omitempty"`
+	Reason           string                 `json:"reason,omitempty"`
+	SyntheticJWT     string                 `json:"synthetic_jwt,omitempty"`
+}
+
+// RegisterGatewayRoutes wires gateway-specific routes into the provided mux.
+func RegisterGatewayRoutes(mux *http.ServeMux, resolver func(string) (crypto.PublicKey, error), registry domain.TrustRegistry, tenantID string, signingKey crypto.Signer, jwtIssuer string, now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+
+	mux.HandleFunc("/v1/gateway/authorize", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		var req GatewayAuthorizeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			WriteError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			return
+		}
+
+		tokens := req.Credentials
+		if len(tokens) == 0 && req.Credential != "" {
+			tokens = []string{req.Credential}
+		}
+
+		if len(tokens) == 0 {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "credential is required")
+			return
+		}
+
+		deps := domain.VerifierDependencies{ResolveIssuerPublicKey: func(issuer string) (crypto.PublicKey, error) {
+			if registry != nil && !registry.IsTrustedIssuer(tenantID, issuer) {
+				return nil, domain.ErrUntrustedIssuer
+			}
+			if resolver == nil {
+				return nil, fmt.Errorf("resolver not configured")
+			}
+			return resolver(issuer)
+		}}
+
+		chainResult, err := domain.VerifyCredentialChain(tokens, deps, domain.VerificationOptions{ExpectedAudience: req.ExpectedAudience, MaxDelegationDepth: 3}, now())
+		if err != nil {
+			reason := mapVerificationErrorToReason(err)
+			writeDecision(w, GatewayAuthorizeResponse{Allowed: false, Reason: reason})
+			return
+		}
+
+		decision := domain.BuildAuthzDecisionFromVerification(chainResult)
+
+		response := GatewayAuthorizeResponse{
+			Allowed:          decision.Allowed,
+			Subject:          decision.SubjectDID,
+			ActingOnBehalfOf: decision.ActingOnBehalfOf,
+			DelegationDepth:  decision.DelegationDepth,
+			Claims:           decision.Claims,
+			Reason:           decision.Reason,
+		}
+
+		if req.WantSyntheticJWT {
+			jwt, err := domain.BuildSyntheticJWT(decision, signingKey, jwtIssuer, 15*time.Minute)
+			if err != nil {
+				writeDecision(w, GatewayAuthorizeResponse{Allowed: false, Reason: "jwt_error"})
+				return
+			}
+			response.SyntheticJWT = jwt.Token
+		}
+
+		writeDecision(w, response)
+	})
+}
+
+func writeDecision(w http.ResponseWriter, resp GatewayAuthorizeResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	status := http.StatusOK
+	if !resp.Allowed {
+		status = http.StatusForbidden
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func mapVerificationErrorToReason(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrExpiredCredential):
+		return "expired_credential"
+	case errors.Is(err, domain.ErrUntrustedIssuer):
+		return "untrusted_issuer"
+	case errors.Is(err, domain.ErrInvalidSignature):
+		return "invalid_signature"
+	case errors.Is(err, domain.ErrUnexpectedAudience):
+		return "unexpected_audience"
+	case errors.Is(err, domain.ErrDelegationDepth):
+		return "delegation_depth_exceeded"
+	case errors.Is(err, domain.ErrDelegationScope):
+		return "invalid_scope"
+	case errors.Is(err, domain.ErrDelegationTTL):
+		return "invalid_ttl"
+	default:
+		return "verification_failed"
+	}
+}
