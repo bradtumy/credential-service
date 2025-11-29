@@ -63,25 +63,25 @@ func NewService(cfg config.Config, db *pgxpool.Pool, vaultClient *api.Client) *S
 // IssueCredential handles issuing one or more credentials.
 func (s *Service) IssueCredential(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		httpx.WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	var req domain.CredentialRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Printf("Failed to decode request body: %v", err)
-		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+		httpx.WriteAPIError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
 		return
 	}
 
 	if len(req.Subjects) == 0 {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "no subjects provided")
+		httpx.WriteAPIError(w, http.StatusBadRequest, "invalid_request", "no subjects provided")
 		return
 	}
 
 	if err := s.enqueueBulkIssuance(req); err != nil {
 		log.Printf("Failed to enqueue bulk issuance: %v", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "queue_error", "failed to process request")
+		httpx.WriteAPIError(w, http.StatusInternalServerError, "queue_error", "failed to process request")
 		return
 	}
 
@@ -89,28 +89,28 @@ func (s *Service) IssueCredential(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.HTTPClient.Get(resolverURL)
 	if err != nil {
 		log.Printf("Failed to fetch DID document from resolver: %v", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "resolver_error", "failed to resolve DID")
+		httpx.WriteAPIError(w, http.StatusInternalServerError, "resolver_error", "failed to resolve DID")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("Received non-OK response from resolver: %s", resp.Status)
-		httpx.WriteError(w, http.StatusInternalServerError, "resolver_error", "failed to resolve DID")
+		httpx.WriteAPIError(w, http.StatusInternalServerError, "resolver_error", "failed to resolve DID")
 		return
 	}
 
 	vaultKey, err := s.getPrivateKeyFromVault(req.IssuerDid)
 	if err != nil {
 		log.Printf("Failed to retrieve private key from Vault: %v", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "vault_error", "failed to issue credential")
+		httpx.WriteAPIError(w, http.StatusInternalServerError, "vault_error", "failed to issue credential")
 		return
 	}
 
 	privateKey, err := domain.ParseEd25519PrivateKeyFromBase64(vaultKey)
 	if err != nil {
 		log.Printf("Failed to parse private key: %v", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "key_error", "failed to issue credential")
+		httpx.WriteAPIError(w, http.StatusInternalServerError, "key_error", "failed to issue credential")
 		return
 	}
 
@@ -126,14 +126,14 @@ func (s *Service) IssueCredential(w http.ResponseWriter, r *http.Request) {
 		credentialJSON, err := json.Marshal(credential)
 		if err != nil {
 			log.Printf("Failed to marshal credential to JSON: %v", err)
-			httpx.WriteError(w, http.StatusInternalServerError, "marshal_error", "failed to process credential")
+			httpx.WriteAPIError(w, http.StatusInternalServerError, "marshal_error", "failed to process credential")
 			return
 		}
 
 		signature, err := domain.SignCredential(r.Context(), privateKey, credentialJSON)
 		if err != nil {
 			log.Printf("Failed to sign credential: %v", err)
-			httpx.WriteError(w, http.StatusInternalServerError, "signing_error", "failed to issue credential")
+			httpx.WriteAPIError(w, http.StatusInternalServerError, "signing_error", "failed to issue credential")
 			return
 		}
 
@@ -142,14 +142,14 @@ func (s *Service) IssueCredential(w http.ResponseWriter, r *http.Request) {
 		proofJSON, err := json.Marshal(credential.Proof)
 		if err != nil {
 			log.Printf("Failed to marshal proof to JSON: %v", err)
-			httpx.WriteError(w, http.StatusInternalServerError, "marshal_error", "failed to process credential")
+			httpx.WriteAPIError(w, http.StatusInternalServerError, "marshal_error", "failed to process credential")
 			return
 		}
 
 		if s.DB != nil {
 			if err := s.storeCredential(r.Context(), credential, subject, credentialJSON, proofJSON); err != nil {
 				log.Printf("Error inserting credential for subject %v: %v", subject, err)
-				httpx.WriteError(w, http.StatusInternalServerError, "db_error", "failed to store credential")
+				httpx.WriteAPIError(w, http.StatusInternalServerError, "db_error", "failed to store credential")
 				return
 			}
 		}
@@ -160,7 +160,7 @@ func (s *Service) IssueCredential(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(credentials); err != nil {
 		log.Printf("Failed to encode response: %v", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "encode_error", "failed to issue credential")
+		httpx.WriteAPIError(w, http.StatusInternalServerError, "encode_error", "failed to issue credential")
 		return
 	}
 }

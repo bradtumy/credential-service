@@ -23,10 +23,14 @@ func main() {
 	cfg := config.LoadVerifierConfigFromEnv()
 	logging.Init(cfg.LogLevel)
 
-	var trustRegistry domain.TrustRegistry = domain.NewMemoryTrustRegistry()
+	var (
+		trustRegistry domain.TrustRegistry = domain.NewMemoryTrustRegistry()
+		db            *sql.DB
+	)
 
 	if cfg.UseDBTrustRegistry && cfg.DB_DSN != "" {
-		db, err := sql.Open("postgres", cfg.DB_DSN)
+		var err error
+		db, err = sql.Open("postgres", cfg.DB_DSN)
 		if err != nil {
 			log.Fatalf("connect to database: %v", err)
 		}
@@ -59,9 +63,17 @@ func main() {
 		return key, nil
 	}
 
+	readiness := func(ctx context.Context) error {
+		if cfg.UseDBTrustRegistry && db != nil {
+			return db.PingContext(ctx)
+		}
+		return nil
+	}
+
 	mux := http.NewServeMux()
 	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, time.Now)
 	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, signer, issuerDID, time.Now)
+	httpx.RegisterHealthRoutes(mux, readiness)
 
 	handler := httpx.RequestContext(httpx.LoggingMiddleware(mux))
 

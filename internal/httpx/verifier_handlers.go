@@ -10,6 +10,7 @@ import (
 
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/metrics"
+	"github.com/bradtumy/credential-service/internal/version"
 )
 
 // VerifyRequest represents a verifier request payload.
@@ -27,6 +28,7 @@ type VerifyResponse struct {
 	ExpiresAt        time.Time `json:"expires_at"`
 	ActingOnBehalfOf string    `json:"acting_on_behalf_of,omitempty"`
 	DelegationDepth  int       `json:"delegation_depth"`
+	APIVersion       string    `json:"api_version"`
 }
 
 // RegisterVerifierRoutes wires verifier HTTP routes into the provided mux.
@@ -37,13 +39,13 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 
 	mux.HandleFunc("/v1/credentials/verify", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 
 		var req VerifyRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			WriteError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			WriteAPIError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
 			return
 		}
 
@@ -53,7 +55,7 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 		}
 
 		if len(tokens) == 0 {
-			WriteError(w, http.StatusBadRequest, "invalid_request", "credential is required")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "credential is required")
 			return
 		}
 
@@ -79,12 +81,12 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			switch {
 			case errors.Is(err, domain.ErrUntrustedIssuer):
 				reason = "untrusted_issuer"
-				WriteError(w, http.StatusForbidden, reason, err.Error())
+				WriteAPIError(w, http.StatusForbidden, reason, err.Error())
 			case errors.Is(err, domain.ErrExpiredCredential), errors.Is(err, domain.ErrInvalidSignature), errors.Is(err, domain.ErrUnexpectedAudience), errors.Is(err, domain.ErrIssuedInFuture):
 				reason = "invalid_credential"
-				WriteError(w, http.StatusUnauthorized, reason, err.Error())
+				WriteAPIError(w, http.StatusUnauthorized, reason, err.Error())
 			default:
-				WriteError(w, http.StatusBadRequest, reason, err.Error())
+				WriteAPIError(w, http.StatusBadRequest, reason, err.Error())
 			}
 			metrics.DefaultVerifierMetrics.IncVerificationFailure(reason)
 			return
@@ -105,6 +107,7 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			ExpiresAt:        leaf.ExpiresAt,
 			ActingOnBehalfOf: actingOnBehalfOf,
 			DelegationDepth:  chainResult.DelegationDepth,
+			APIVersion:       version.APIVersion,
 		})
 	})
 }

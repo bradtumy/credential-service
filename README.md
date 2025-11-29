@@ -60,6 +60,45 @@ Use the Go helper to mint a short-lived delegated credential for an agent and ca
 go run ./examples/agent-basic
 ```
 
+## API Overview
+
+The platform exposes versioned HTTP endpoints under `/v1`:
+
+- `POST /v1/credentials/issue` — issue a verifiable credential.
+- `POST /v1/credentials/delegate` — mint a scoped delegated credential.
+- `POST /v1/credentials/verify` — verify a credential chain.
+- `POST /v1/gateway/authorize` — perform gateway authorization and mint a synthetic JWT.
+- `GET /healthz` and `GET /readyz` — lightweight health and readiness probes.
+
+See [API_OVERVIEW.md](API_OVERVIEW.md) for request/response flows, and the OpenAPI definition at [api/openapi.yaml](api/openapi.yaml).
+
+## Versioning Policy
+
+- Current API version: **v1** (surfaced in responses as `api_version`).
+- Backward compatible changes land under the same major version; breaking changes will publish a new `/v{n}` path.
+- Binary releases inject a build identifier via `-ldflags` to `internal/version.BuildVersion`.
+
+## Error Format
+
+All JSON errors follow a consistent envelope:
+
+```json
+{
+  "error": "invalid_request",
+  "description": "human-friendly message",
+  "code": "invalid_request",
+  "api_version": "v1"
+}
+```
+
+## Developer Resources
+
+- [API Overview](API_OVERVIEW.md) — endpoint guide with sample flows.
+- [AGENTS.md](AGENTS.md) — agent lifecycle notes.
+- [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — deeper design context.
+- [Quickstart](#-5-minute-quickstart) — fast start instructions.
+- [OpenAPI Spec](api/openapi.yaml) — structured contract for the HTTP APIs.
+
 ## What Are DIDs and VCs?
 
 Decentralized Identifiers (DIDs) are unique digital identifiers backed by cryptographic keys. They are not anchored to any single company or database, giving people, services, and AI agents a portable way to prove who they are without relying on a central authority.

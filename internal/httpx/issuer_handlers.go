@@ -10,6 +10,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/version"
 )
 
 // IssueRequest represents the request payload for issuing credentials.
@@ -22,6 +23,7 @@ type IssueRequest struct {
 // IssueResponse represents the response payload after issuance.
 type IssueResponse struct {
 	Credential string `json:"credential"`
+	APIVersion string `json:"api_version"`
 }
 
 // DelegateRequest represents the payload for issuing delegated credentials.
@@ -36,85 +38,85 @@ type DelegateRequest struct {
 func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg config.IssuerConfig) {
 	mux.HandleFunc("/v1/credentials/issue", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 
 		var req IssueRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			WriteError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			WriteAPIError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
 			return
 		}
 
 		if req.SubjectDID == "" {
-			WriteError(w, http.StatusBadRequest, "invalid_request", "subject_did is required")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "subject_did is required")
 			return
 		}
 
 		ttl := time.Duration(req.TTLSeconds) * time.Second
 		if ttl <= 0 {
-			WriteError(w, http.StatusBadRequest, "invalid_request", "ttl_seconds must be positive")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "ttl_seconds must be positive")
 			return
 		}
 
 		signer, err := store.GetSigningKey(cfg.DefaultTenantID)
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "keystore_error", err.Error())
+			WriteAPIError(w, http.StatusInternalServerError, "keystore_error", err.Error())
 			return
 		}
 
 		issuerDID, err := domain.DIDFromPublicKey(signer.Public())
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "did_error", err.Error())
+			WriteAPIError(w, http.StatusInternalServerError, "did_error", err.Error())
 			return
 		}
 
 		token, err := domain.IssueBasicCredential(issuerDID, req.SubjectDID, signer, ttl, req.Claims)
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "issuance_error", err.Error())
+			WriteAPIError(w, http.StatusInternalServerError, "issuance_error", err.Error())
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token})
+		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token, APIVersion: version.APIVersion})
 	})
 
 	mux.HandleFunc("/v1/credentials/delegate", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 
 		var req DelegateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			WriteError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			WriteAPIError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
 			return
 		}
 
 		if req.ParentCredential == "" || req.DelegateDID == "" {
-			WriteError(w, http.StatusBadRequest, "invalid_request", "parent_credential and delegate_did are required")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "parent_credential and delegate_did are required")
 			return
 		}
 		if len(req.Scope) == 0 {
-			WriteError(w, http.StatusBadRequest, "invalid_request", "scope is required")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "scope is required")
 			return
 		}
 
 		ttl := time.Duration(req.TTLSeconds) * time.Second
 		if ttl <= 0 {
-			WriteError(w, http.StatusBadRequest, "invalid_request", "ttl_seconds must be positive")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "ttl_seconds must be positive")
 			return
 		}
 
 		signer, err := store.GetSigningKey(cfg.DefaultTenantID)
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "keystore_error", err.Error())
+			WriteAPIError(w, http.StatusInternalServerError, "keystore_error", err.Error())
 			return
 		}
 
 		issuerDID, err := domain.DIDFromPublicKey(signer.Public())
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "did_error", err.Error())
+			WriteAPIError(w, http.StatusInternalServerError, "did_error", err.Error())
 			return
 		}
 
@@ -135,20 +137,20 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 			case errors.Is(err, domain.ErrExpiredCredential), errors.Is(err, domain.ErrInvalidSignature):
 				status = http.StatusUnauthorized
 			}
-			WriteError(w, status, "invalid_parent", err.Error())
+			WriteAPIError(w, status, "invalid_parent", err.Error())
 			return
 		}
 
 		parentCred := parentResult.Credentials[0]
 		parentScope := domain.ScopeFromClaims(parentCred.Claims)
 		if !domain.IsScopeSubset(parentScope, req.Scope) {
-			WriteError(w, http.StatusBadRequest, "invalid_scope", "delegated scope must be within parent scope")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_scope", "delegated scope must be within parent scope")
 			return
 		}
 
 		expiresAt := now.Add(ttl)
 		if !domain.IsTTLWithinParent(parentCred.ExpiresAt, expiresAt) {
-			WriteError(w, http.StatusBadRequest, "invalid_ttl", "delegated credential must expire before parent")
+			WriteAPIError(w, http.StatusBadRequest, "invalid_ttl", "delegated credential must expire before parent")
 			return
 		}
 
@@ -162,11 +164,11 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 
 		token, err := domain.IssueBasicCredential(issuerDID, req.DelegateDID, signer, ttl, claims)
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "issuance_error", err.Error())
+			WriteAPIError(w, http.StatusInternalServerError, "issuance_error", err.Error())
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token})
+		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token, APIVersion: version.APIVersion})
 	})
 }

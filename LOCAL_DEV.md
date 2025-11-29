@@ -28,3 +28,9 @@ This repository includes a containerized development environment that runs the i
 
 ## Tear Down
 - Stop the stack with `docker compose down`. If you want to remove the Postgres volume, include `-v` when tearing down.
+
+## Releasing a New Version
+- Update the `CHANGELOG.md` with the changes for the release.
+- Build binaries with `make release VERSION=v0.1.0` (replace with your version).
+- Create a git tag: `git tag v0.1.0`.
+- Push tags to origin: `git push --tags`.
