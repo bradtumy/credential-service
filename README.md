@@ -99,6 +99,7 @@ The platform exposes versioned HTTP endpoints under `/v1`:
   - **`POST /v1/admin/policies`** — **🔐 manage authorization policies (admin VC required)**
   - **`POST /v1/admin/trust-registry`** — **🔐 manage trusted issuer DIDs (admin VC required)**
   - `GET /healthz`, `GET /readyz` — health checks
+  - `GET /metrics` — **Prometheus metrics endpoint (when enabled)**
 
 - **S2S API (port 8082)**:
   - `GET /orders` — protected resource requiring valid credentials
@@ -144,6 +145,7 @@ All JSON errors follow a consistent envelope with enhanced validation support:
 - **[Policy Engine](POLICY_ENGINE.md)** — authorization system deep dive
 - **[Agent Delegation](AGENTS.md)** — how AI agents can act on behalf of users
 - **[Developer Guide](DEVELOPER_GUIDE.md)** — architecture and design decisions
+- **[Prometheus Metrics](METRICS_IMPLEMENTATION.md)** — production observability and monitoring setup
 - **[OpenAPI Spec](api/openapi.yaml)** — structured API contracts
 
 **Key Concepts to Understand**:
@@ -169,6 +171,12 @@ This service issues and verifies VCs bound to DIDs so that humans, services, and
 - **✅ Fixed Placeholder Cryptography**: Replaced placeholder Ed25519 signing with proper cryptographic implementation
 - **✅ W3C-Compliant JWT Structure**: VCs now use standard JWT claims (`iat`, `exp`, `nbf`) alongside W3C VC fields
 - **✅ Canonical Data Model**: Single `VerifiableCredential` struct used across all services for consistency
+
+### Production Observability & Infrastructure
+- **✅ Prometheus Metrics**: Complete metrics collection for gateway authorization, verification performance, and system health
+- **✅ Redis Rate Limiting**: Sliding window rate limiting with DoS protection
+- **✅ Monitoring Stack**: Docker-based Prometheus + Grafana deployment for production visibility
+- **✅ Performance Tracking**: Authorization latency, cache hit rates, delegation depth analysis
 
 ### Better Error Handling & Validation
 - **✅ Comprehensive DID Validation**: Format checking, length limits, and method validation
@@ -215,6 +223,8 @@ curl -X POST http://localhost:8080/v1/credentials/issue \
 - **Gateway Integration**: Generate synthetic JWTs for downstream API authorization
 - **Credential Chain Verification**: Validate delegation chains with proper scope inheritance
 - **DID Resolution**: Distributed public key resolution enabling multi-organization deployment without pre-shared keys
+- **Production Observability**: Comprehensive Prometheus metrics for monitoring and alerting
+- **Redis-backed Infrastructure**: Rate limiting and caching for production scalability
 - **Microservice Architecture**: Containerized services for issuer, verifier, and demo APIs
 - **Admin Authentication**: Admin endpoints protected by verifiable credentials with super-admin roles
 
@@ -552,6 +562,26 @@ The services are configured via environment variables in `docker-compose.yml`:
 - **Issuer**: `ISSUER_HTTP_PORT=8080`
 - **Verifier**: `VERIFIER_HTTP_PORT=8081`, database connection for trust registry and policies
 - **S2S API**: `API_HTTP_PORT=8082` for demo protected resources
+
+### Production Configuration
+
+For production deployments with monitoring and observability:
+
+```bash
+# Enable Prometheus metrics
+METRICS_TYPE=prometheus
+METRICS_NAMESPACE=your_service_name
+
+# Redis for rate limiting and caching
+REDIS_ADDR=redis:6379
+RATE_LIMIT_ENABLED=true
+GATEWAY_CACHE=true
+
+# Use production monitoring stack
+docker-compose -f docker-compose.monitoring.yml up -d
+```
+
+See [METRICS_IMPLEMENTATION.md](METRICS_IMPLEMENTATION.md) for complete production setup with Prometheus, Grafana, and monitoring best practices.
 
 
 
