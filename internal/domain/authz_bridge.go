@@ -6,8 +6,20 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
+)
+
+// Authorization bridge errors
+var (
+	ErrDecisionDenied = errors.New("cannot mint token for denied decision")
+	ErrSigningKeyRequired = errors.New("signing key is required")
+	ErrIssuerRequired = errors.New("issuer is required")
+	ErrInvalidTTL = errors.New("ttl must be positive")
+	ErrInvalidTokenFormat = errors.New("invalid token format")
+	ErrUnsupportedPublicKeyType = errors.New("unsupported public key type")
+	ErrInvalidTokenSignature = errors.New("invalid signature")
 )
 
 // AuthzDecision captures an authorization decision derived from a verified credential chain.
@@ -46,16 +58,16 @@ func BuildAuthzDecisionFromVerification(result *DelegationChainResult) AuthzDeci
 // BuildSyntheticJWT issues a compact JWT-like token from an authorization decision.
 func BuildSyntheticJWT(decision AuthzDecision, signingKey crypto.Signer, issuer string, ttl time.Duration) (SyntheticJWT, error) {
 	if !decision.Allowed {
-		return SyntheticJWT{}, fmt.Errorf("cannot mint token for denied decision")
+		return SyntheticJWT{}, ErrDecisionDenied
 	}
 	if signingKey == nil {
-		return SyntheticJWT{}, fmt.Errorf("signing key is required")
+		return SyntheticJWT{}, ErrSigningKeyRequired
 	}
 	if issuer == "" {
-		return SyntheticJWT{}, fmt.Errorf("issuer is required")
+		return SyntheticJWT{}, ErrIssuerRequired
 	}
 	if ttl <= 0 {
-		return SyntheticJWT{}, fmt.Errorf("ttl must be positive")
+		return SyntheticJWT{}, ErrInvalidTTL
 	}
 
 	now := time.Now().UTC()
@@ -106,7 +118,7 @@ func BuildSyntheticJWT(decision AuthzDecision, signingKey crypto.Signer, issuer 
 func DecodeSyntheticJWT(token string) (map[string]interface{}, error) {
 	parts := splitToken(token)
 	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid token format")
+		return nil, ErrInvalidTokenFormat
 	}
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
@@ -124,7 +136,7 @@ func DecodeSyntheticJWT(token string) (map[string]interface{}, error) {
 func VerifySyntheticJWTSignature(token string, publicKey crypto.PublicKey) error {
 	parts := splitToken(token)
 	if len(parts) != 3 {
-		return fmt.Errorf("invalid token format")
+		return ErrInvalidTokenFormat
 	}
 
 	signingInput := parts[0] + "." + parts[1]
@@ -135,11 +147,11 @@ func VerifySyntheticJWTSignature(token string, publicKey crypto.PublicKey) error
 
 	edKey, ok := publicKey.(ed25519.PublicKey)
 	if !ok {
-		return fmt.Errorf("unsupported public key type")
+		return ErrUnsupportedPublicKeyType
 	}
 
 	if !ed25519.Verify(edKey, []byte(signingInput), signature) {
-		return fmt.Errorf("invalid signature")
+		return ErrInvalidTokenSignature
 	}
 	return nil
 }

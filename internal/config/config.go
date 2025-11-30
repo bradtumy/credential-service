@@ -69,6 +69,10 @@ type VerifierConfig struct {
 	RedisAddr          string
 	RedisPassword      string
 	RedisDB            int
+	// DID Resolution Configuration
+	DIDResolutionTimeout int    // Timeout in seconds for DID resolution
+	MaxDIDLength        int    // Maximum allowed DID length
+	DIDResolverDebug    bool   // Enable debug logging for DID resolution
 }
 
 // LoadVerifierConfigFromEnv loads verifier configuration from environment variables.
@@ -85,6 +89,10 @@ func LoadVerifierConfigFromEnv() VerifierConfig {
 		RedisAddr:          getenv("REDIS_ADDR", ""),
 		RedisPassword:      getenv("REDIS_PASSWORD", ""),
 		RedisDB:            getenvInt("REDIS_DB", 0),
+		// DID Resolution Configuration
+		DIDResolutionTimeout: getenvInt("DID_RESOLUTION_TIMEOUT", 5), // 5 seconds default
+		MaxDIDLength:        getenvInt("MAX_DID_LENGTH", 2048),       // 2KB default
+		DIDResolverDebug:    getenv("DID_RESOLVER_DEBUG", "false") == "true",
 	}
 }
 
