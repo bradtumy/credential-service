@@ -93,9 +93,10 @@ The platform exposes versioned HTTP endpoints under `/v1`:
   - `GET /healthz`, `GET /readyz` — health checks
 
 - **Verifier Service (port 8081)**:
-  - `POST /v1/credentials/verify` — verify a credential chain
+  - `POST /v1/credentials/verify` — verify a credential chain using DID resolution
   - `POST /v1/gateway/authorize` — perform authorization and mint synthetic JWT
   - **`POST /v1/admin/policies`** — **🔐 manage authorization policies (admin VC required)**
+  - **`POST /v1/admin/trust-registry`** — **🔐 manage trusted issuer DIDs (admin VC required)**
   - `GET /healthz`, `GET /readyz` — health checks
 
 - **S2S API (port 8082)**:
@@ -132,11 +133,12 @@ All JSON errors follow a consistent envelope:
 - **[OpenAPI Spec](api/openapi.yaml)** — structured API contracts
 
 **Key Concepts to Understand**:
+- **DID Resolution**: How verifiers automatically resolve public keys from DIDs without pre-configuration
 - **Admin vs User VCs**: Admin VCs have `"vc_type": "admin"` and elevated permissions; user VCs cannot access admin endpoints
 - **Bootstrap Security**: Initial admin VC creation requires the bootstrap endpoint for secure system initialization  
 - **Credentials vs Policies**: Credentials prove identity/claims, policies control access to resources
 - **Delegation Chains**: How agents inherit scoped permissions from parent credentials  
-- **Trust Registry**: Which issuers are allowed to create valid credentials
+- **Trust Registry**: Which issuer DIDs are allowed to create valid credentials (managed per organization)
 - **Multi-tenancy**: How organizations are isolated from each other
 
 ## What Are DIDs and VCs?
@@ -155,6 +157,7 @@ This service issues and verifies VCs bound to DIDs so that humans, services, and
 - **Trust Registry**: Manage trusted issuers and multi-tenant isolation
 - **Gateway Integration**: Generate synthetic JWTs for downstream API authorization
 - **Credential Chain Verification**: Validate delegation chains with proper scope inheritance
+- **DID Resolution**: Distributed public key resolution enabling multi-organization deployment without pre-shared keys
 - **Microservice Architecture**: Containerized services for issuer, verifier, and demo APIs
 - **Admin Authentication**: Admin endpoints protected by verifiable credentials with super-admin roles
 
@@ -183,6 +186,107 @@ curl -X POST http://localhost:8081/v1/admin/policies \
 - User VCs are rejected with `"admin_credential_required"` error
 - Admin VCs are validated for proper type, role, and signature
 - Bootstrap endpoint is unprotected (one-time setup only)
+
+## 🌐 DID Resolution & Multi-Organization Support
+
+### How DID Resolution Works
+
+The system uses **DID Resolution** to enable distributed verification without pre-shared keys. Instead of manually configuring public keys, verifiers automatically resolve public keys from DIDs.
+
+**Traditional Approach (❌ Doesn't Scale)**:
+```go
+// Hard-coded key maps - requires manual coordination
+issuerKeys := map[string]crypto.PublicKey{
+    "did:jwk:abc123...": publicKey1,
+    "did:jwk:def456...": publicKey2,
+}
+```
+
+**DID Resolution Approach (✅ Scales Globally)**:
+```go
+// Automatic resolution - no pre-configuration needed
+publicKey, err := didResolver.ResolvePublicKey(ctx, "did:jwk:abc123...")
+```
+
+### Supported DID Methods
+
+#### **did:jwk (Self-contained)**
+- **Format**: `did:jwk:eyJrdHkiOiJPS1AiLCJjcnYi...` 
+- **Resolution**: Extracts public key directly from the DID (no network calls)
+- **Use Case**: Perfect for microservices, agents, and ephemeral identities
+- **Example**: `did:jwk:eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6Ik9QRGhLb3hQeXJqbmJZUWc1cFNHS2FoOXFMQ3g2eE5vVEdJdHZ1MDhiZ1UifQ`
+
+#### **did:web (Future Support)** 🚧
+- **Format**: `did:web:example.org` or `did:web:bank.example.com:departments:hr`
+- **Resolution**: HTTPS lookup to `https://example.org/.well-known/did.json`
+- **Use Case**: Enterprise organizations with existing web infrastructure
+- **Status**: Planned for Phase 2
+
+> **Note**: The repository includes a `resolver-service` for DID document storage/retrieval. The **DID Resolution** described here is different - it's the built-in capability for resolving public keys directly from DIDs during credential verification.
+
+### Multi-Organization Deployment
+
+**Step 1**: Organizations deploy independently
+```bash
+# Organization A (Bank)
+docker run issuer-service:latest
+# Issues credentials with did:jwk:bank-key...
+
+# Organization B (Government) 
+docker run verifier-service:latest
+# Verifies credentials using DID resolution
+```
+
+**Step 2**: Establish trust relationships
+```bash
+# Government decides to trust Bank's issuer DID
+curl -X POST http://gov-verifier/v1/admin/trust-registry \
+  -H "Authorization: Bearer <admin-vc>" \
+  -d '{"issuer_did": "did:jwk:bank-key...", "trusted": true}'
+```
+
+**Step 3**: Cross-organizational verification works automatically
+```bash
+# Bank issues credential
+credential=$(curl -X POST http://bank-issuer/v1/credentials/issue \
+  -d '{"subject_did": "did:jwk:citizen123", "claims": {"verified_citizen": true}}')
+
+# Government verifies without any key exchange!
+curl -X POST http://gov-verifier/v1/credentials/verify \
+  -d '{"credential": "'$credential'"}'
+# ✅ SUCCESS - DID resolution automatically found Bank's public key
+```
+
+### Trust Registry Management
+
+Verifiers maintain trust registries that determine which issuer DIDs to accept:
+
+```bash
+# List trusted issuers
+curl http://localhost:8081/v1/admin/trust-registry
+
+# Add trusted issuer (requires admin VC)
+curl -X POST http://localhost:8081/v1/admin/trust-registry \
+  -H "Authorization: Bearer <admin-vc>" \
+  -d '{
+    "issuer_did": "did:jwk:eyJrdHkiOiJPS1AiLi4u",
+    "trusted": true,
+    "metadata": {"organization": "Trusted Bank Corp"}
+  }'
+
+# Remove trust
+curl -X DELETE http://localhost:8081/v1/admin/trust-registry/did:jwk:eyJrdHkiOi... \
+  -H "Authorization: Bearer <admin-vc>"
+```
+
+### Benefits for Distributed Deployment
+
+✅ **No Key Exchange**: Organizations don't need to share public keys manually  
+✅ **Automatic Resolution**: Public keys are resolved from DIDs cryptographically  
+✅ **Trust Control**: Each verifier decides which issuers to trust  
+✅ **Key Rotation**: New keys automatically work (did:jwk creates new DID)  
+✅ **Global Scalability**: Works across any number of organizations  
+✅ **Zero Dependencies**: did:jwk resolution requires no external infrastructure  
 
 ## Requirements
 
@@ -348,9 +452,11 @@ go test ./...
 
 - **Secure Bootstrap**: Run bootstrap endpoint only during initial setup, then disable or restrict access
 - **Admin VC Storage**: Store admin VCs securely (encrypted storage, key management systems)
+- **Trust Registry Security**: Carefully manage trusted issuer DIDs - only trust verified organizations
+- **DID Resolution**: Monitor DID resolution for security - did:jwk is self-contained and secure
 - **Network Security**: Use HTTPS/TLS for all API communications in production
 - **VC Rotation**: Regularly rotate admin VCs before 6-month expiry
-- **Audit Logging**: Monitor all admin endpoint access for security auditing
+- **Audit Logging**: Monitor all admin endpoint access and trust registry changes for security auditing
 
 ### Development vs Production
 
