@@ -599,6 +599,7 @@ go test ./...
 
 ### Production Deployment
 
+- **Key Management**: Use external KMS for production security - see [KMS_DEPLOYMENT.md](./KMS_DEPLOYMENT.md) for HashiCorp Vault and Google Cloud KMS setup
 - **Secure Bootstrap**: Run bootstrap endpoint only during initial setup, then disable or restrict access
 - **Admin VC Storage**: Store admin VCs securely (encrypted storage, key management systems)
 - **Trust Registry Security**: Carefully manage trusted issuer DIDs - only trust verified organizations

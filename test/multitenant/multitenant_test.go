@@ -14,6 +14,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/metrics"
 	"github.com/bradtumy/credential-service/internal/policy"
 	"github.com/bradtumy/credential-service/internal/tenant"
 )
@@ -80,7 +81,7 @@ func TestMultiTenantEndToEnd(t *testing.T) {
 
 	mux := http.NewServeMux()
 	httpx.RegisterIssuerRoutes(mux, keyStore, cfg)
-	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, time.Now)
+	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
 	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signingKeyA, issuerDIDs[cfg.DefaultTenantID], nil, nil, nil, time.Now)
 
 	handler := httpx.RequestContext(httpx.TenantMiddleware(tenant.Resolver{Mode: tenant.ModeMulti, DefaultTenantID: cfg.DefaultTenantID, Store: tenantStore}, mux))

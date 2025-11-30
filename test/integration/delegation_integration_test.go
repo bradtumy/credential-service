@@ -14,6 +14,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/metrics"
 )
 
 func TestDelegationIntegration(t *testing.T) {
@@ -47,7 +48,7 @@ func TestDelegationIntegration(t *testing.T) {
 	}
 
 	verifierMux := http.NewServeMux()
-	httpx.RegisterVerifierRoutes(verifierMux, resolver, registry, verifierCfg.DefaultTenantID, time.Now)
+	httpx.RegisterVerifierRoutes(verifierMux, resolver, registry, verifierCfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
 	verifierServer := httptest.NewServer(verifierMux)
 	t.Cleanup(verifierServer.Close)
 

@@ -14,6 +14,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/metrics"
 )
 
 func TestSmokeFlow(t *testing.T) {
@@ -62,7 +63,7 @@ func TestSmokeFlow(t *testing.T) {
 	}
 
 	verifierMux := http.NewServeMux()
-	httpx.RegisterVerifierRoutes(verifierMux, resolver, registry, issuerCfg.DefaultTenantID, time.Now)
+	httpx.RegisterVerifierRoutes(verifierMux, resolver, registry, issuerCfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
 	httpx.RegisterGatewayRoutes(verifierMux, resolver, registry, nil, issuerCfg.DefaultTenantID, signer, issuerDID, nil, nil, nil, time.Now)
 	verifierServer := httptest.NewServer(verifierMux)
 	t.Cleanup(verifierServer.Close)

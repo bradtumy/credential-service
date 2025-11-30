@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
@@ -16,7 +17,20 @@ import (
 func main() {
 	cfg := config.LoadIssuerConfigFromEnv()
 	logging.Init(cfg.LogLevel)
-	store := keystore.NewMemoryKeyStore()
+	
+	// Use production keystore with automatic backend detection
+	var store keystore.KeyStore
+	if os.Getenv("USE_PRODUCTION_KEYSTORE") == "true" {
+		productionStore, err := keystore.NewProductionKeyStoreFromEnv()
+		if err != nil {
+			log.Fatalf("Failed to initialize production keystore: %v", err)
+		}
+		store = productionStore
+		log.Printf("Using production keystore with backend: %s", productionStore.GetBackend())
+	} else {
+		store = keystore.NewMemoryKeyStore()
+		log.Printf("Using memory keystore (development mode)")
+	}
 
 	tenantStore := tenant.NewMemoryStore()
 	_ = tenantStore.UpsertTenant(context.Background(), domain.Tenant{ID: cfg.DefaultTenantID, Name: "default", Enabled: true})

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -100,8 +101,21 @@ func main() {
 		return didResolver.ResolvePublicKey(context.Background(), issuer)
 	}
 
+	// Initialize keystore - use production keystore if configured
+	var store keystore.KeyStore
+	if os.Getenv("USE_PRODUCTION_KEYSTORE") == "true" {
+		productionStore, err := keystore.NewProductionKeyStoreFromEnv()
+		if err != nil {
+			log.Fatalf("Failed to initialize production keystore: %v", err)
+		}
+		store = productionStore
+		log.Printf("Using production keystore with backend: %s", productionStore.GetBackend())
+	} else {
+		store = keystore.NewMemoryKeyStore()
+		log.Printf("Using memory keystore (development mode)")
+	}
+	
 	// For backward compatibility, add a default trusted issuer (can be removed later)
-	store := keystore.NewMemoryKeyStore()
 	signer, err := store.GetSigningKey(cfg.DefaultTenantID)
 	if err != nil {
 		log.Fatalf("get signing key: %v", err)
