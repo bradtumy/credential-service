@@ -9,25 +9,42 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// VerifiableCredential represents a simplified VC model used across the service.
+// VerifiableCredential represents a W3C-compliant VC model used across all services.
+// This is the canonical model - all other services must use this exact structure.
 type VerifiableCredential struct {
-	Context           []string               `json:"@context,omitempty"`
-	Type              []string               `json:"type,omitempty"`
+	// W3C Standard Fields
+	Context           []string               `json:"@context"`
+	Type              []string               `json:"type"`
 	ID                string                 `json:"id"`
 	Issuer            string                 `json:"issuer"`
-	Subject           string                 `json:"subject,omitempty"`
-	IssuanceDate      string                 `json:"issuanceDate,omitempty"`
+	IssuanceDate      string                 `json:"issuanceDate"`
 	ExpirationDate    string                 `json:"expirationDate,omitempty"`
-	IssuedAt          time.Time              `json:"issued_at,omitempty"`
-	ExpiresAt         time.Time              `json:"expires_at,omitempty"`
-	Claims            map[string]interface{} `json:"claims,omitempty"`
-	CredentialSubject map[string]interface{} `json:"credentialSubject,omitempty"`
-	Proof             Proof                  `json:"proof,omitempty"`
+	CredentialSubject map[string]interface{} `json:"credentialSubject"`
+	Proof             *Proof                 `json:"proof,omitempty"`
+	
+	// JWT Standard Claims (when used as JWT)
+	JTI               string    `json:"jti,omitempty"`   // JWT ID (maps to ID)
+	ISS               string    `json:"iss,omitempty"`   // Issuer (maps to issuer)
+	SUB               string    `json:"sub,omitempty"`   // Subject 
+	IAT               int64     `json:"iat,omitempty"`   // Issued At (Unix timestamp)
+	EXP               int64     `json:"exp,omitempty"`   // Expires At (Unix timestamp)
+	NBF               int64     `json:"nbf,omitempty"`   // Not Before (Unix timestamp)
+	
+	// Extension Fields for delegation and authorization
+	Scope             []string               `json:"scope,omitempty"`           // Authorized scopes
+	DelegationChain   []string               `json:"delegation_chain,omitempty"` // Chain of delegating entities
+	
+	// Backward compatibility fields (deprecated but maintained for existing code)
+	Claims            map[string]interface{} `json:"claims,omitempty"`          // Legacy claims field
+	Subject           string                 `json:"subject,omitempty"`         // Legacy subject field (use SUB instead)
+	IssuedAt          time.Time              `json:"issued_at,omitempty"`       // Legacy field (use IAT instead)
+	ExpiresAt         time.Time              `json:"expires_at,omitempty"`      // Legacy field (use EXP instead)
 }
 
 // Proof structure for digital signature.
@@ -81,24 +98,42 @@ func LoadBaseSchema(filePath string) (BaseSchema, error) {
 	return baseSchema, nil
 }
 
-// BuildCredential constructs a credential with consistent defaults.
-func BuildCredential(id, issuer string, issuanceDate, expirationDate string, subject map[string]interface{}) VerifiableCredential {
-	return VerifiableCredential{
-		Context:        []string{"https://www.w3.org/2018/credentials/v1"},
-		Type:           []string{"VerifiableCredential"},
-		ID:             id,
-		Issuer:         issuer,
-		IssuanceDate:   issuanceDate,
-		ExpirationDate: expirationDate,
-		CredentialSubject: map[string]interface{}{
-			"subject": subject,
-		},
+// BuildCredential constructs a W3C-compliant credential with validation and consistent defaults.
+func BuildCredential(id, issuer string, issuanceDate, expirationDate string, subject map[string]interface{}) (VerifiableCredential, error) {
+	if err := ValidateDID(issuer); err != nil {
+		return VerifiableCredential{}, fmt.Errorf("invalid issuer: %w", err)
 	}
+	if id == "" {
+		return VerifiableCredential{}, NewFieldValidationError("id", "cannot be empty")
+	}
+	if err := ValidateCredentialSubject(subject); err != nil {
+		return VerifiableCredential{}, err
+	}
+	
+	// Parse and validate dates
+	if _, err := time.Parse(time.RFC3339, issuanceDate); err != nil {
+		return VerifiableCredential{}, NewFieldValidationError("issuanceDate", "must be RFC3339 format")
+	}
+	if expirationDate != "" {
+		if _, err := time.Parse(time.RFC3339, expirationDate); err != nil {
+			return VerifiableCredential{}, NewFieldValidationError("expirationDate", "must be RFC3339 format")
+		}
+	}
+	
+	return VerifiableCredential{
+		Context:           []string{"https://www.w3.org/2018/credentials/v1"},
+		Type:              []string{"VerifiableCredential"},
+		ID:                id,
+		Issuer:            issuer,
+		IssuanceDate:      issuanceDate,
+		ExpirationDate:    expirationDate,
+		CredentialSubject: subject,
+	}, nil
 }
 
 // AttachProof adds the proof information to a credential.
 func AttachProof(vc VerifiableCredential, signature []byte) VerifiableCredential {
-	vc.Proof = Proof{
+	vc.Proof = &Proof{
 		Type:               "Ed25519Signature2018",
 		Created:            time.Now().UTC().Format(time.RFC3339),
 		ProofValue:         base64.StdEncoding.EncodeToString(signature),
@@ -117,39 +152,67 @@ func ParseEd25519PrivateKeyFromBase64(base64Key string) ([]byte, error) {
 	return privateKeyBytes, nil
 }
 
-// SignCredential signs the credential payload. The signing logic is intentionally
-// simple and should be replaced with a secure implementation.
-func SignCredential(_ context.Context, privateKey []byte, credentialJSON []byte) ([]byte, error) {
-	if len(privateKey) == 0 {
-		return nil, errors.New("private key is empty")
+// SignCredential signs the credential payload using a proper crypto.Signer.
+func SignCredential(ctx context.Context, signer crypto.Signer, credentialJSON []byte) ([]byte, error) {
+	if signer == nil {
+		return nil, errors.New("signer is required")
 	}
-	// TODO: replace with real Ed25519 signing logic
 	if len(credentialJSON) == 0 {
 		return nil, errors.New("credential payload is empty")
 	}
-	return []byte("SIGNATURE"), nil
+
+	// Sign the credential JSON payload
+	signature, err := signer.Sign(rand.Reader, credentialJSON, crypto.Hash(0))
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign credential: %w", err)
+	}
+
+	return signature, nil
 }
 
-// IssueBasicCredential creates and signs a minimal VC using a compact JWS structure.
+// IssueBasicCredential creates and signs a W3C-compliant VC as JWT.
 func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, ttl time.Duration, claims map[string]interface{}) (string, error) {
-	if issuerDID == "" || subjectDID == "" {
-		return "", errors.New("issuer and subject DIDs are required")
+	if err := ValidateDID(issuerDID); err != nil {
+		return "", fmt.Errorf("invalid issuer DID: %w", err)
+	}
+	if err := ValidateDID(subjectDID); err != nil {
+		return "", fmt.Errorf("invalid subject DID: %w", err)
 	}
 	if signer == nil {
-		return "", errors.New("signer is required")
+		return "", NewValidationError("signer is required")
 	}
 	if ttl <= 0 {
-		return "", errors.New("ttl must be positive")
+		return "", NewValidationError("ttl must be positive")
 	}
 
 	issuedAt := time.Now().UTC()
+	expiresAt := issuedAt.Add(ttl)
+	credentialID := uuid.NewString()
+	
+	// Create W3C-compliant VC with proper JWT claims
 	vc := VerifiableCredential{
-		ID:        uuid.NewString(),
-		Issuer:    issuerDID,
-		Subject:   subjectDID,
-		IssuedAt:  issuedAt,
-		ExpiresAt: issuedAt.Add(ttl),
-		Claims:    claims,
+		// W3C Fields
+		Context:           []string{"https://www.w3.org/2018/credentials/v1"},
+		Type:              []string{"VerifiableCredential"},
+		ID:                credentialID,
+		Issuer:            issuerDID,
+		IssuanceDate:      issuedAt.Format(time.RFC3339),
+		ExpirationDate:    expiresAt.Format(time.RFC3339),
+		CredentialSubject: claims,
+		
+		// JWT Claims
+		JTI:               credentialID,
+		ISS:               issuerDID,
+		SUB:               subjectDID,
+		IAT:               issuedAt.Unix(),
+		EXP:               expiresAt.Unix(),
+		NBF:               issuedAt.Unix(),
+		
+		// Backward compatibility (populate legacy fields)
+		Subject:           subjectDID,
+		Claims:            claims,
+		IssuedAt:          issuedAt,
+		ExpiresAt:         expiresAt,
 	}
 
 	header := map[string]string{
@@ -159,12 +222,12 @@ func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, tt
 
 	headerSegment, err := encodeSegment(header)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("encode header: %w", err)
 	}
 
 	payloadSegment, err := encodeSegment(vc)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("encode payload: %w", err)
 	}
 
 	signingInput := headerSegment + "." + payloadSegment
@@ -196,4 +259,84 @@ var osReadFileFn = defaultReadFile
 
 func defaultReadFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
+}
+
+// ValidationError represents input validation errors with better developer experience.
+type ValidationError struct {
+	Field   string `json:"field,omitempty"`
+	Message string `json:"message"`
+	Code    string `json:"code"`
+}
+
+func (e ValidationError) Error() string {
+	if e.Field != "" {
+		return fmt.Sprintf("%s: %s", e.Field, e.Message)
+	}
+	return e.Message
+}
+
+func NewValidationError(message string) ValidationError {
+	return ValidationError{Message: message, Code: "validation_error"}
+}
+
+func NewFieldValidationError(field, message string) ValidationError {
+	return ValidationError{Field: field, Message: message, Code: "field_validation_error"}
+}
+
+// ValidateDID validates DID format according to W3C DID specification.
+func ValidateDID(did string) error {
+	if did == "" {
+		return NewValidationError("DID cannot be empty")
+	}
+	if len(did) > 1000 {
+		return NewValidationError("DID too long (max 1000 characters)")
+	}
+	if !strings.HasPrefix(did, "did:") {
+		return NewValidationError("DID must start with 'did:'")
+	}
+	
+	// Basic format: did:method:method-specific-id
+	parts := strings.SplitN(did, ":", 3)
+	if len(parts) < 3 {
+		return NewValidationError("DID must have format 'did:method:method-specific-id'")
+	}
+	
+	method := parts[1]
+	if method == "" {
+		return NewValidationError("DID method cannot be empty")
+	}
+	
+	methodSpecificID := parts[2]
+	if methodSpecificID == "" {
+		return NewValidationError("DID method-specific-id cannot be empty")
+	}
+	
+	return nil
+}
+
+// ValidateCredentialSubject validates the credential subject field.
+func ValidateCredentialSubject(subject map[string]interface{}) error {
+	if subject == nil {
+		return NewFieldValidationError("credentialSubject", "cannot be null")
+	}
+	if len(subject) == 0 {
+		return NewFieldValidationError("credentialSubject", "cannot be empty")
+	}
+	return nil
+}
+
+// ValidateCredentialRequest validates a complete credential request.
+func ValidateCredentialRequest(req CredentialRequest) error {
+	if err := ValidateDID(req.IssuerDid); err != nil {
+		return fmt.Errorf("invalid issuer DID: %w", err)
+	}
+	if len(req.Subjects) == 0 {
+		return NewFieldValidationError("subjects", "at least one subject is required")
+	}
+	for i, subject := range req.Subjects {
+		if err := ValidateCredentialSubject(subject); err != nil {
+			return fmt.Errorf("invalid subject[%d]: %w", i, err)
+		}
+	}
+	return nil
 }

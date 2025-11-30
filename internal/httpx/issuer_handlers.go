@@ -38,25 +38,39 @@ type DelegateRequest struct {
 func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg config.IssuerConfig) {
 	mux.HandleFunc("/v1/credentials/issue", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST method is allowed")
 			return
 		}
 
 		var req IssueRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			WriteAPIError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			WriteAPIError(w, http.StatusBadRequest, "bad_request", "Invalid JSON payload: "+err.Error())
 			return
 		}
 
-		if req.SubjectDID == "" {
-			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "subject_did is required")
+		// Validate DID format
+		if err := domain.ValidateDID(req.SubjectDID); err != nil {
+			WriteDIDError(w, err)
 			return
 		}
 
+		// Validate TTL
 		ttl := time.Duration(req.TTLSeconds) * time.Second
 		if ttl <= 0 {
-			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "ttl_seconds must be positive")
+			WriteValidationError(w, domain.NewFieldValidationError("ttl_seconds", "must be positive"))
 			return
+		}
+		if ttl > 24*time.Hour {
+			WriteValidationError(w, domain.NewFieldValidationError("ttl_seconds", "cannot exceed 24 hours"))
+			return
+		}
+
+		// Validate claims
+		if req.Claims != nil {
+			if err := domain.ValidateCredentialSubject(req.Claims); err != nil {
+				WriteValidationError(w, err)
+				return
+			}
 		}
 
                 tenantID := TenantIDFromContext(r.Context())
@@ -78,7 +92,12 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 
 		token, err := domain.IssueBasicCredential(issuerDID, req.SubjectDID, signer, ttl, req.Claims)
 		if err != nil {
-			WriteAPIError(w, http.StatusInternalServerError, "issuance_error", err.Error())
+			var validationErr domain.ValidationError
+			if errors.As(err, &validationErr) {
+				WriteValidationError(w, err)
+			} else {
+				WriteInternalError(w, "Failed to issue credential")
+			}
 			return
 		}
 
@@ -88,28 +107,38 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 
 	mux.HandleFunc("/v1/credentials/delegate", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST method is allowed")
 			return
 		}
 
 		var req DelegateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			WriteAPIError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			WriteAPIError(w, http.StatusBadRequest, "bad_request", "Invalid JSON payload: "+err.Error())
 			return
 		}
 
-		if req.ParentCredential == "" || req.DelegateDID == "" {
-			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "parent_credential and delegate_did are required")
+		// Validate parent credential
+		if req.ParentCredential == "" {
+			WriteValidationError(w, domain.NewFieldValidationError("parent_credential", "is required"))
 			return
 		}
+
+		// Validate delegate DID
+		if err := domain.ValidateDID(req.DelegateDID); err != nil {
+			WriteDIDError(w, err)
+			return
+		}
+
+		// Validate scope
 		if len(req.Scope) == 0 {
-			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "scope is required")
+			WriteValidationError(w, domain.NewFieldValidationError("scope", "at least one scope is required"))
 			return
 		}
 
+		// Validate TTL
 		ttl := time.Duration(req.TTLSeconds) * time.Second
 		if ttl <= 0 {
-			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "ttl_seconds must be positive")
+			WriteValidationError(w, domain.NewFieldValidationError("ttl_seconds", "must be positive"))
 			return
 		}
 
