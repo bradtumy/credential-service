@@ -2,6 +2,27 @@
 
 ## Audit Logging Demo
 
+## Health and Readiness
+
+- Endpoints:
+  - `GET /health`: lightweight liveness check (returns `200 ok`).
+  - `GET /ready`: readiness check (service-dependent; e.g., DID service pings DB).
+- Services:
+  - Holder: `/health`
+  - DID: `/health`, `/ready` (DB ping)
+  - Resolver: `/health`, `/ready`
+  - Presentation: `/health`, `/ready`
+  - Schema: `/health`, `/ready`
+- Middleware: All services should use `httpx.StandardMiddlewareChain()` for correlation IDs, audit logging, and security headers.
+
+## Trust Registry Enforcement
+
+- Verification checks issuer trust per tenant before resolving keys.
+- Behavior:
+  - Untrusted issuer → `403` with `reason=untrusted_issuer`; audit `security.data_access` failure.
+  - Trusted issuer → continues with signature and TTL validation.
+- Code reference: `internal/httpx/verifier_handlers.go` (uses tenant context + `domain.TrustRegistry`).
+
 - Purpose: Demonstrates correlation IDs and structured audit/security events across HTTP endpoints.
 - Run:
   - `go run ./examples/audit-logging-demo/main.go`
