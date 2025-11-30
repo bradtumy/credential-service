@@ -74,9 +74,12 @@ func main() {
 	tenantResolver := tenant.Resolver{Mode: tenancyMode, DefaultTenantID: cfg.DefaultTenantID, Store: tenantStore}
 
 	// Create DID resolver for distributed public key resolution
-	didResolver := domain.NewCompositeResolver(
+	didResolver, err := domain.NewCompositeResolver(
 		domain.NewJWKResolver(), // Support did:jwk method
 	)
+	if err != nil {
+		log.Fatalf("create DID resolver: %v", err)
+	}
 
 	// Create public key resolver that uses DID resolution and trust registry
 	resolver := func(issuer string) (crypto.PublicKey, error) {

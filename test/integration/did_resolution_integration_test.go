@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
@@ -45,9 +47,10 @@ func TestDistributedDIDResolution(t *testing.T) {
 	
 	// Create separate verifier with DID resolution (as done in our updated main.go)
 	trustRegistry := domain.NewMemoryTrustRegistry()
-	didResolver := domain.NewCompositeResolver(
+	didResolver, err := domain.NewCompositeResolver(
 		domain.NewJWKResolver(), // This enables did:jwk resolution
 	)
+	require.NoError(t, err)
 	
 	resolver := func(issuer string) (crypto.PublicKey, error) {
 		// Check trust registry first
