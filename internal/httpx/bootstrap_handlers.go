@@ -26,6 +26,8 @@ type BootstrapResponse struct {
 }
 
 // RegisterBootstrapRoutes wires bootstrap HTTP routes into the provided mux
+// WARNING: Bootstrap endpoint has no authentication - should be disabled in production
+// or protected by network-level controls (VPN, private subnets, etc.)
 func RegisterBootstrapRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg config.IssuerConfig, trustRegistry domain.TrustRegistry) {
 	mux.HandleFunc("/v1/setup/bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

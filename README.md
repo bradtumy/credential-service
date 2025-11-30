@@ -14,6 +14,7 @@ A robust microservice designed for creating, managing, and verifying **W3C-compl
 
    ```bash
    # Create root admin VC (6-month validity)
+   # WARNING: Bootstrap endpoint has no authentication - disable in production
    curl -X POST http://localhost:8080/v1/setup/bootstrap \
      -H "Content-Type: application/json" \
      -d '{
@@ -112,16 +113,29 @@ See [API_OVERVIEW.md](API_OVERVIEW.md) for request/response flows, and the OpenA
 
 ## Error Format
 
-All JSON errors follow a consistent envelope:
+All JSON errors follow a consistent envelope with enhanced validation support:
 
 ```json
 {
-  "error": "invalid_request",
-  "description": "human-friendly message",
-  "code": "invalid_request",
-  "api_version": "v1"
+  "error": "validation_error",
+  "description": "Invalid request data",
+  "code": "validation_error",
+  "api_version": "v1",
+  "fields": [
+    {
+      "field": "subject_did",
+      "message": "DID must start with 'did:'",
+      "code": "field_validation_error"
+    }
+  ]
 }
 ```
+
+**Error Types:**
+- `validation_error` — Input validation failures with field-level details
+- `invalid_did` — DID format validation errors
+- `internal_error` — Server-side errors (implementation details hidden)
+- `unauthorized` — Authentication/authorization failures
 
 ## 📚 Learn More
 
@@ -148,6 +162,49 @@ Decentralized Identifiers (DIDs) are unique digital identifiers backed by crypto
 Verifiable Credentials (VCs) are digitally signed statements about someone or something. Because they are signed, anyone can check that a VC has not been tampered with and that it really came from the claimed issuer. In this project, VCs can carry claims such as roles, permissions, or other attributes.
 
 This service issues and verifies VCs bound to DIDs so that humans, services, and AI agents can authenticate and share trusted information across systems in an interoperable way.
+
+## 🔄 Recent Improvements (Developer Experience)
+
+### Enhanced Security & Standards Compliance
+- **✅ Fixed Placeholder Cryptography**: Replaced placeholder Ed25519 signing with proper cryptographic implementation
+- **✅ W3C-Compliant JWT Structure**: VCs now use standard JWT claims (`iat`, `exp`, `nbf`) alongside W3C VC fields
+- **✅ Canonical Data Model**: Single `VerifiableCredential` struct used across all services for consistency
+
+### Better Error Handling & Validation
+- **✅ Comprehensive DID Validation**: Format checking, length limits, and method validation
+- **✅ Structured Error Responses**: Field-level validation errors with clear error codes
+- **✅ Improved HTTP Status Codes**: More precise status codes for different error types
+
+### Security & Production Readiness
+- **✅ Secure Key Generation**: Replaced deterministic keys with crypto/rand for production safety
+- **✅ Bootstrap Security Documentation**: Added warnings about unauthenticated bootstrap endpoint
+- **✅ Enhanced Security Guidelines**: Updated with key management and production considerations
+
+### Enhanced Developer Experience
+```bash
+# Example: Clear validation errors now returned
+curl -X POST http://localhost:8080/v1/credentials/issue \
+  -d '{"subject_did": "invalid-did", "ttl_seconds": -1}'
+
+# Returns structured error:
+{
+  "error": "validation_error", 
+  "description": "Invalid request data",
+  "fields": [
+    {"field": "subject_did", "message": "DID must start with 'did:'", "code": "field_validation_error"},
+    {"field": "ttl_seconds", "message": "must be positive", "code": "field_validation_error"}
+  ],
+  "api_version": "v1"
+}
+```
+
+### Migration Guide
+- **Services**: Update imports to use `domain.VerifiableCredential` instead of local structs
+- **Error Handling**: Use new `WriteValidationError()` and `WriteDIDError()` functions for better UX
+- **JWT Parsing**: VCs now include both W3C fields (`@context`, `type`) and JWT claims (`iat`, `exp`) 
+- **Key Management**: Production deployments should disable deterministic key generation
+- **Bootstrap Security**: Network-protect or disable `/v1/setup/bootstrap` in production environments
+- **Validation**: All DID inputs now undergo format validation automatically
 
 ## Key Features
 

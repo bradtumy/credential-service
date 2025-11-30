@@ -2,8 +2,11 @@ package issuer
 
 import (
 	"context"
+	"crypto"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -18,6 +21,19 @@ import (
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
 )
+
+// ed25519PrivateKeySigner implements crypto.Signer interface for Ed25519 private keys
+type ed25519PrivateKeySigner struct {
+	privateKey ed25519.PrivateKey
+}
+
+func (s *ed25519PrivateKeySigner) Public() crypto.PublicKey {
+	return s.privateKey.Public()
+}
+
+func (s *ed25519PrivateKeySigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	return s.privateKey.Sign(rand, digest, opts)
+}
 
 // QueueConfig describes RabbitMQ connection inputs.
 type QueueConfig struct {
@@ -121,7 +137,12 @@ func (s *Service) IssueCredential(w http.ResponseWriter, r *http.Request) {
 
 	for _, subject := range req.Subjects {
 		credentialID := uuid.New().String()
-		credential := domain.BuildCredential(credentialID, req.IssuerDid, issuanceDate, expirationDate, subject)
+		credential, err := domain.BuildCredential(credentialID, req.IssuerDid, issuanceDate, expirationDate, subject)
+		if err != nil {
+			log.Printf("Failed to build credential: %v", err)
+			httpx.WriteAPIError(w, http.StatusBadRequest, "credential_error", "failed to build credential")
+			return
+		}
 
 		credentialJSON, err := json.Marshal(credential)
 		if err != nil {
@@ -130,7 +151,9 @@ func (s *Service) IssueCredential(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		signature, err := domain.SignCredential(r.Context(), privateKey, credentialJSON)
+		// Create a signer from the private key
+		signer := &ed25519PrivateKeySigner{privateKey: ed25519.PrivateKey(privateKey)}
+		signature, err := domain.SignCredential(r.Context(), signer, credentialJSON)
 		if err != nil {
 			log.Printf("Failed to sign credential: %v", err)
 			httpx.WriteAPIError(w, http.StatusInternalServerError, "signing_error", "failed to issue credential")
