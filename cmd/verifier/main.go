@@ -192,7 +192,8 @@ func main() {
 	
 	httpx.RegisterHealthRoutes(mux, readiness)
 
-	handler := httpx.RequestContext(httpx.TenantMiddleware(tenantResolver, httpx.LoggingMiddleware(mux)))
+	// Use the new standard middleware chain with comprehensive audit logging
+	handler := httpx.StandardMiddlewareChain()(httpx.TenantMiddleware(tenantResolver, mux))
 
 	log.Printf("Verifier service running on port %s...", cfg.HTTPPort)
 	log.Fatal(http.ListenAndServe(":"+cfg.HTTPPort, handler))

@@ -10,6 +10,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/logging"
 	"github.com/bradtumy/credential-service/internal/version"
 )
 
@@ -92,6 +93,9 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 
 		token, err := domain.IssueBasicCredential(issuerDID, req.SubjectDID, signer, ttl, req.Claims)
 		if err != nil {
+			// Log failed credential issuance
+			logging.LogCredentialEvent(r.Context(), logging.AuditEventCredentialIssued, req.SubjectDID, issuerDID, "failure")
+			
 			var validationErr domain.ValidationError
 			if errors.As(err, &validationErr) {
 				WriteValidationError(w, err)
@@ -100,6 +104,9 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 			}
 			return
 		}
+
+		// Log successful credential issuance
+		logging.LogCredentialEvent(r.Context(), logging.AuditEventCredentialIssued, req.SubjectDID, issuerDID, "success")
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token, APIVersion: version.APIVersion})
@@ -203,9 +210,34 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 
 		token, err := domain.IssueBasicCredential(issuerDID, req.DelegateDID, signer, ttl, claims)
 		if err != nil {
+			// Log failed delegation
+			logging.LogAuditEvent(r.Context(), logging.AuditEvent{
+				EventType:  logging.AuditEventDelegationCreated,
+				SubjectDID: req.DelegateDID,
+				IssuerDID:  issuerDID,
+				Outcome:    "failure",
+				Metadata: map[string]interface{}{
+					"scope":     req.Scope,
+					"parent_id": parentCred.ID,
+					"ttl_seconds": req.TTLSeconds,
+				},
+			})
 			WriteAPIError(w, http.StatusInternalServerError, "issuance_error", err.Error())
 			return
 		}
+
+		// Log successful delegation
+		logging.LogAuditEvent(r.Context(), logging.AuditEvent{
+			EventType:  logging.AuditEventDelegationCreated,
+			SubjectDID: req.DelegateDID,
+			IssuerDID:  issuerDID,
+			Outcome:    "success",
+			Metadata: map[string]interface{}{
+				"scope":     req.Scope,
+				"parent_id": parentCred.ID,
+				"ttl_seconds": req.TTLSeconds,
+			},
+		})
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token, APIVersion: version.APIVersion})

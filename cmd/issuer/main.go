@@ -42,7 +42,8 @@ func main() {
 	httpx.RegisterBootstrapRoutes(mux, store, cfg, nil)  // Add bootstrap endpoint
 	httpx.RegisterHealthRoutes(mux, nil)
 
-	handler := httpx.RequestContext(httpx.TenantMiddleware(resolver, httpx.LoggingMiddleware(mux)))
+	// Use the new standard middleware chain with comprehensive audit logging
+	handler := httpx.StandardMiddlewareChain()(httpx.TenantMiddleware(resolver, mux))
 
 	log.Printf("Issuer service running on port %s", cfg.HTTPPort)
 	if err := http.ListenAndServe(":"+cfg.HTTPPort, handler); err != nil {
