@@ -73,8 +73,27 @@ func main() {
 
 	tenantResolver := tenant.Resolver{Mode: tenancyMode, DefaultTenantID: cfg.DefaultTenantID, Store: tenantStore}
 
-	issuerKeys := make(map[string]crypto.PublicKey)
+	// Create DID resolver for distributed public key resolution
+	didResolver := domain.NewCompositeResolver(
+		domain.NewJWKResolver(), // Support did:jwk method
+	)
 
+	// Create public key resolver that uses DID resolution and trust registry
+	resolver := func(issuer string) (crypto.PublicKey, error) {
+		// First check if issuer is trusted
+		trusted, err := trustRegistry.IsTrustedIssuer(context.Background(), cfg.DefaultTenantID, issuer)
+		if err != nil {
+			return nil, fmt.Errorf("trust registry check failed: %w", err)
+		}
+		if !trusted {
+			return nil, domain.ErrUntrustedIssuer
+		}
+		
+		// Resolve public key from DID
+		return didResolver.ResolvePublicKey(context.Background(), issuer)
+	}
+
+	// For backward compatibility, add a default trusted issuer (can be removed later)
 	store := keystore.NewMemoryKeyStore()
 	signer, err := store.GetSigningKey(cfg.DefaultTenantID)
 	if err != nil {
@@ -86,17 +105,8 @@ func main() {
 		log.Fatalf("derive issuer did: %v", err)
 	}
 
-	issuerKeys[issuerDID] = signer.Public()
 	if err := trustRegistry.AddTrustedIssuer(context.Background(), cfg.DefaultTenantID, issuerDID); err != nil {
 		log.Fatalf("seed trust registry: %v", err)
-	}
-
-	resolver := func(issuer string) (crypto.PublicKey, error) {
-		key, ok := issuerKeys[issuer]
-		if !ok {
-			return nil, fmt.Errorf("unknown issuer: %s", issuer)
-		}
-		return key, nil
 	}
 
 	readiness := func(ctx context.Context) error {
@@ -131,6 +141,7 @@ func main() {
 	httpx.RegisterPolicyAdminRoutes(adminMux, policyStore, cfg.DefaultTenantID)
 	
 	// Apply admin authentication middleware to all /v1/admin routes
+	// Admin middleware also uses DID resolution for public key verification
 	adminMiddleware := httpx.AdminAuthMiddleware(resolver, trustRegistry, cfg.DefaultTenantID)
 	mux.Handle("/v1/admin/", adminMiddleware(adminMux))
 	
