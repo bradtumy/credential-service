@@ -32,7 +32,7 @@ func TestVerifierHandlerSuccess(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterVerifierRoutes(mux, resolver, registry, "tenant", time.Now)
+	RegisterVerifierRoutes(mux, resolver, registry, "tenant", nil, time.Now)
 
 	token, err := domain.IssueBasicCredential(issuerDID, "did:jwk:subject", priv, 5*time.Minute, map[string]interface{}{"aud": "example-api"})
 	if err != nil {
@@ -94,7 +94,7 @@ func TestVerifierHandlerDelegatedCredential(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterVerifierRoutes(mux, resolver, registry, "tenant", time.Now)
+	RegisterVerifierRoutes(mux, resolver, registry, "tenant", nil, time.Now)
 
 	reqPayload := VerifyRequest{Credentials: []string{parent, child}}
 	body, _ := json.Marshal(reqPayload)
@@ -140,7 +140,7 @@ func TestVerifierHandlerExpiredCredential(t *testing.T) {
 	credential := decodeCredentialForHandlerTest(t, token)
 
 	mux := http.NewServeMux()
-	RegisterVerifierRoutes(mux, resolver, registry, "tenant", func() time.Time {
+	RegisterVerifierRoutes(mux, resolver, registry, "tenant", nil, func() time.Time {
 		return credential.ExpiresAt.Add(time.Second)
 	})
 
@@ -167,7 +167,7 @@ func TestVerifierHandlerUntrustedIssuer(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterVerifierRoutes(mux, resolver, registry, "tenant", time.Now)
+	RegisterVerifierRoutes(mux, resolver, registry, "tenant", nil, time.Now)
 
 	token, err := domain.IssueBasicCredential(issuerDID, "did:jwk:subject", priv, 5*time.Minute, nil)
 	if err != nil {

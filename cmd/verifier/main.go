@@ -11,12 +11,15 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/bradtumy/credential-service/internal/cache"
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
 	"github.com/bradtumy/credential-service/internal/keystore"
 	"github.com/bradtumy/credential-service/internal/logging"
+	"github.com/bradtumy/credential-service/internal/metrics"
 	"github.com/bradtumy/credential-service/internal/policy"
 	"github.com/bradtumy/credential-service/internal/ratelimit"
 	"github.com/bradtumy/credential-service/internal/storage"
@@ -120,8 +123,21 @@ func main() {
 		return nil
 	}
 
+	// Initialize metrics factory from environment
+	metricsFactory := metrics.NewFactoryFromEnv()
+	gatewayMetrics, err := metricsFactory.CreateGatewayMetrics()
+	if err != nil {
+		log.Fatalf("create gateway metrics: %v", err)
+	}
+	verifierMetrics, err := metricsFactory.CreateVerifierMetrics()
+	if err != nil {
+		log.Fatalf("create verifier metrics: %v", err)
+	}
+
+	log.Printf("Metrics enabled: %s (namespace: %s)", metricsFactory.GetMetricsType(), metricsFactory.GetNamespace())
+
 	mux := http.NewServeMux()
-	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, time.Now)
+	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, verifierMetrics, time.Now)
 	var decisionCache cache.DecisionCache = cache.NoopDecisionCache{}
 	if cfg.GatewayCache && cfg.RedisAddr != "" {
 		redisCache, err := cache.NewRedisDecisionCacheFromEnv()
@@ -134,11 +150,16 @@ func main() {
 
 	var limiter ratelimit.Limiter = ratelimit.NoopLimiter{}
 	if cfg.RateLimitEnabled {
-		log.Printf("rate limiting enabled but using noop limiter; configure backend to enforce limits")
+		if redisLimiter, err := ratelimit.NewRedisLimiterFromEnv(); err != nil {
+			log.Printf("rate limiting enabled but redis setup failed: %v, using noop limiter", err)
+		} else {
+			limiter = redisLimiter
+			log.Printf("rate limiting enabled with Redis backend")
+		}
 	}
 
 	policyEngine := policy.NewEngine(policyStore)
-	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signer, issuerDID, decisionCache, limiter, nil, time.Now)
+	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signer, issuerDID, decisionCache, limiter, gatewayMetrics, time.Now)
 	
 	// Create protected admin routes
 	adminMux := http.NewServeMux()
@@ -148,6 +169,12 @@ func main() {
 	// Admin middleware also uses DID resolution for public key verification
 	adminMiddleware := httpx.AdminAuthMiddleware(resolver, trustRegistry, cfg.DefaultTenantID)
 	mux.Handle("/v1/admin/", adminMiddleware(adminMux))
+	
+	// Expose Prometheus metrics endpoint if enabled
+	if metricsFactory.GetMetricsType() == metrics.PrometheusMetrics {
+		mux.Handle("/metrics", promhttp.Handler())
+		log.Printf("Prometheus metrics exposed at /metrics")
+	}
 	
 	httpx.RegisterHealthRoutes(mux, readiness)
 

@@ -32,9 +32,13 @@ type VerifyResponse struct {
 }
 
 // RegisterVerifierRoutes wires verifier HTTP routes into the provided mux.
-func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.PublicKey, error), registry domain.TrustRegistry, defaultTenantID string, now func() time.Time) {
+func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.PublicKey, error), registry domain.TrustRegistry, defaultTenantID string, verifierMetrics metrics.VerifierMetrics, now func() time.Time) {
 	if now == nil {
 		now = time.Now
+	}
+
+	if verifierMetrics == nil {
+		verifierMetrics = metrics.DefaultVerifierMetrics
 	}
 
 	mux.HandleFunc("/v1/credentials/verify", func(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +97,7 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			default:
 				WriteAPIError(w, http.StatusBadRequest, reason, err.Error())
 			}
-			metrics.DefaultVerifierMetrics.IncVerificationFailure(reason)
+			verifierMetrics.IncVerificationFailure(reason)
 			return
 		}
 
@@ -103,7 +107,7 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			actingOnBehalfOf = chainResult.RootDelegator
 		}
 
-		metrics.DefaultVerifierMetrics.IncVerificationSuccess("ok")
+		verifierMetrics.IncVerificationSuccess("ok")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(VerifyResponse{
 			Valid:            true,
