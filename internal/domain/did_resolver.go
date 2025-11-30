@@ -8,7 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
+	"time"
 )
 
 // DID resolution errors - following Go error handling best practices
@@ -18,11 +22,18 @@ var (
 	ErrInvalidJWK           = errors.New("invalid JWK structure")
 	ErrUnsupportedKeyType    = errors.New("unsupported key type")
 	ErrEmptyDID             = errors.New("empty DID")
+	// did:web specific errors
+	ErrWebResolutionFailed  = errors.New("did:web resolution failed")
+	ErrInvalidDIDDocument   = errors.New("invalid DID document")
+	ErrDocumentTooLarge     = errors.New("DID document too large")
+	ErrUnsecureConnection   = errors.New("did:web requires HTTPS")
+	ErrInvalidWebDID        = errors.New("invalid did:web format")
 )
 
 // DID method constants - avoid magic strings
 const (
 	DIDMethodJWK = "did:jwk"
+	DIDMethodWeb = "did:web"
 	DIDPrefix    = "did:"
 )
 
@@ -38,21 +49,32 @@ const (
 	DefaultMaxDIDLength = 2048
 	// DefaultMaxJWKSize - maximum JWK size for security
 	DefaultMaxJWKSize = 1024
+	// DefaultWebTimeout - default timeout for did:web resolution
+	DefaultWebTimeoutSeconds = 10
+	// DefaultMaxDIDDocSize - maximum DID document size for did:web
+	DefaultMaxDIDDocSize = 10240 // 10KB
 )
 
 // ResolverConfig holds configuration options for DID resolvers.
 type ResolverConfig struct {
-	MaxDIDLength int
-	MaxJWKSize   int
-	Debug        bool
+	MaxDIDLength       int
+	MaxJWKSize         int
+	Debug              bool
+	// did:web specific configuration
+	WebTimeoutSeconds  int
+	MaxDIDDocSize      int64
+	AllowInsecureWeb   bool // For testing only - never use in production
 }
 
 // DefaultResolverConfig returns sensible defaults for production use.
 func DefaultResolverConfig() ResolverConfig {
 	return ResolverConfig{
-		MaxDIDLength: DefaultMaxDIDLength,
-		MaxJWKSize:   DefaultMaxJWKSize,
-		Debug:        false,
+		MaxDIDLength:      DefaultMaxDIDLength,
+		MaxJWKSize:        DefaultMaxJWKSize,
+		Debug:             false,
+		WebTimeoutSeconds: DefaultWebTimeoutSeconds,
+		MaxDIDDocSize:     int64(DefaultMaxDIDDocSize),
+		AllowInsecureWeb:  false, // Security: HTTPS only in production
 	}
 }
 
@@ -317,4 +339,266 @@ func extractMethodPrefix(did string) string {
 		return DIDPrefix + parts[1]
 	}
 	return "invalid"
+}
+
+// WebResolver resolves did:web DIDs by fetching DID documents from HTTPS endpoints.
+// It follows the DID Web specification and enforces security best practices.
+type WebResolver struct {
+	client           *http.Client
+	maxDocSize       int64
+	allowInsecureWeb bool
+}
+
+// NewWebResolver creates a resolver for the did:web method with default config.
+func NewWebResolver() *WebResolver {
+	config := DefaultResolverConfig()
+	return NewWebResolverWithConfig(config)
+}
+
+// NewWebResolverWithConfig creates a resolver with custom configuration.
+func NewWebResolverWithConfig(config ResolverConfig) *WebResolver {
+	return &WebResolver{
+		client: &http.Client{
+			Timeout: time.Duration(config.WebTimeoutSeconds) * time.Second,
+		},
+		maxDocSize:       config.MaxDIDDocSize,
+		allowInsecureWeb: config.AllowInsecureWeb,
+	}
+}
+
+// ResolvePublicKey resolves a did:web DID by fetching and parsing the DID document.
+func (r *WebResolver) ResolvePublicKey(ctx context.Context, did string) (crypto.PublicKey, error) {
+	// Input validation
+	if did == "" {
+		return nil, ErrEmptyDID
+	}
+	
+	if !strings.HasPrefix(did, "did:web:") {
+		return nil, fmt.Errorf("%w: not a did:web DID", ErrInvalidDIDFormat)
+	}
+	
+	// Convert DID to URL
+	didURL, err := r.didToURL(did)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidWebDID, err)
+	}
+	
+	// Enforce HTTPS unless explicitly allowed
+	if !r.allowInsecureWeb && didURL.Scheme != "https" {
+		return nil, fmt.Errorf("%w: did:web requires HTTPS", ErrUnsecureConnection)
+	}
+	
+	// Fetch DID document
+	doc, err := r.fetchDIDDocument(ctx, didURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrWebResolutionFailed, err)
+	}
+	
+	// Extract public key from document
+	pubKey, err := r.extractPublicKeyFromDocument(doc)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidDIDDocument, err)
+	}
+	
+	return pubKey, nil
+}
+
+// SupportedMethods returns the methods supported by this resolver.
+func (r *WebResolver) SupportedMethods() []string {
+	return []string{DIDMethodWeb}
+}
+
+// didToURL converts a did:web DID to an HTTPS URL according to the specification.
+func (r *WebResolver) didToURL(did string) (*url.URL, error) {
+	// Remove did:web: prefix
+	identifier := strings.TrimPrefix(did, "did:web:")
+	if identifier == "" {
+		return nil, errors.New("empty identifier after did:web:")
+	}
+	
+	// URL decode the identifier
+	decoded, err := url.QueryUnescape(identifier)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL encoding: %v", err)
+	}
+	
+	// Handle URL-encoded port numbers (e.g., %3A for :)
+	// This allows did:web:example.com%3A8080 -> https://example.com:8080/.well-known/did.json
+	if strings.Contains(decoded, "%3A") {
+		decoded = strings.ReplaceAll(decoded, "%3A", ":")
+	}
+	
+	// Split by : to separate domain and path
+	parts := strings.Split(decoded, ":")
+	if len(parts) == 0 {
+		return nil, errors.New("empty domain in did:web")
+	}
+	
+	domain := parts[0]
+	if domain == "" {
+		return nil, errors.New("empty domain in did:web")
+	}
+	
+	// Construct base URL - default to HTTPS, unless explicitly allowing insecure
+	scheme := "https"
+	// For testing purposes, when AllowInsecureWeb is true, check if domain looks like localhost/127.0.0.1
+	if r.allowInsecureWeb && (strings.HasPrefix(domain, "127.0.0.1") || strings.HasPrefix(domain, "localhost") || strings.Contains(domain, ":")) {
+		scheme = "http"
+	}
+	
+	var urlStr string
+	if len(parts) == 1 {
+		// No path specified, use /.well-known/did.json
+		urlStr = fmt.Sprintf("%s://%s/.well-known/did.json", scheme, domain)
+	} else {
+		// Check if we have a port number (second part is numeric)
+		if len(parts) >= 2 {
+			// Try to detect if it's domain:port vs domain:path
+			// Simple heuristic: if the second part is all digits, it's probably a port
+			secondPart := parts[1]
+			isPort := true
+			for _, r := range secondPart {
+				if r < '0' || r > '9' {
+					isPort = false
+					break
+				}
+			}
+			
+			if isPort && len(parts) == 2 {
+				// It's domain:port, use /.well-known/did.json
+				urlStr = fmt.Sprintf("%s://%s:%s/.well-known/did.json", scheme, domain, secondPart)
+			} else {
+				// It's domain:path or domain:port:path, construct full path
+				if isPort && len(parts) > 2 {
+					// domain:port:path...
+					domainWithPort := fmt.Sprintf("%s:%s", domain, secondPart)
+					path := strings.Join(parts[2:], "/")
+					urlStr = fmt.Sprintf("%s://%s/%s/did.json", scheme, domainWithPort, path)
+				} else {
+					// domain:path...
+					path := strings.Join(parts[1:], "/")
+					urlStr = fmt.Sprintf("%s://%s/%s/did.json", scheme, domain, path)
+				}
+			}
+		}
+	}
+	
+	// Parse and validate URL
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL construction: %v", err)
+	}
+	
+	// Additional security validations
+	if parsedURL.Host == "" {
+		return nil, errors.New("empty host in constructed URL")
+	}
+	
+	return parsedURL, nil
+}
+
+// fetchDIDDocument fetches a DID document from the given URL with security controls.
+func (r *WebResolver) fetchDIDDocument(ctx context.Context, urlStr string) (map[string]interface{}, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	
+	// Set appropriate headers
+	req.Header.Set("Accept", "application/did+json, application/json")
+	req.Header.Set("User-Agent", "credential-service/1.0")
+	
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+	
+	// Check content type
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !strings.Contains(contentType, "application/json") && 
+		!strings.Contains(contentType, "application/did+json") {
+		return nil, fmt.Errorf("unexpected content type: %s", contentType)
+	}
+	
+	// Read body with size limit
+	body := http.MaxBytesReader(nil, resp.Body, r.maxDocSize)
+	defer body.Close()
+	
+	data, err := io.ReadAll(body)
+	if err != nil {
+		if strings.Contains(err.Error(), "request body too large") {
+			return nil, fmt.Errorf("%w: document exceeds %d bytes", ErrDocumentTooLarge, r.maxDocSize)
+		}
+		return nil, fmt.Errorf("failed to read response: %v", err)
+	}
+	
+	// Parse JSON
+	var doc map[string]interface{}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %v", err)
+	}
+	
+	// Basic DID document validation
+	if doc["id"] == nil {
+		return nil, errors.New("DID document missing 'id' field")
+	}
+	
+	return doc, nil
+}
+
+// extractPublicKeyFromDocument extracts a public key from a DID document.
+func (r *WebResolver) extractPublicKeyFromDocument(doc map[string]interface{}) (crypto.PublicKey, error) {
+	// Look for verification methods
+	verificationMethods, ok := doc["verificationMethod"]
+	if !ok {
+		return nil, errors.New("DID document missing 'verificationMethod' field")
+	}
+	
+	methods, ok := verificationMethods.([]interface{})
+	if !ok || len(methods) == 0 {
+		return nil, errors.New("no verification methods found in DID document")
+	}
+	
+	// Try to extract key from first verification method
+	for _, method := range methods {
+		methodMap, ok := method.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		// Check for JWK format
+		if jwkData, exists := methodMap["publicKeyJwk"]; exists {
+			jwkMap, ok := jwkData.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			
+			// Convert to our JWK struct
+			jwkBytes, err := json.Marshal(jwkMap)
+			if err != nil {
+				continue
+			}
+			
+			var jwk jwkKey
+			if err := json.Unmarshal(jwkBytes, &jwk); err != nil {
+				continue
+			}
+			
+			// Convert to public key
+			pubKey, err := jwk.toPublicKey()
+			if err == nil {
+				return pubKey, nil
+			}
+		}
+		
+		// Could add support for other key formats here (publicKeyBase58, etc.)
+	}
+	
+	return nil, errors.New("no supported public key format found in DID document")
 }

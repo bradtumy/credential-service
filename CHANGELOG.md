@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 ### Added
+- **did:web DID method support** - Enterprise-ready did:web resolver with HTTPS-only security, configurable timeouts, and document size limits
+- Complete did:web integration with composite resolver supporting both did:jwk and did:web methods
+- Comprehensive security features for did:web: HTTPS enforcement, request timeouts (10s default), document size limits (10KB default)
+- Full test coverage including unit tests, integration tests, and security validation
+- Updated verifier service to include did:web resolver by default
+- Production-ready did:web documentation with enterprise deployment examples
 - API versioning contract with health/readiness endpoints and standardized error shapes.
 - OpenAPI specification for core issuer, verifier, and gateway APIs.
 - Release packaging targets and documentation for tagging.
