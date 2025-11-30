@@ -98,6 +98,8 @@ func authorizeWithGateway(baseURL, credential string) (gatewayAuthzResponse, err
 		"credential":         credential,
 		"expected_audience":  "sample-api",
 		"want_synthetic_jwt": true,
+		"resource":           "orders",
+		"action":             "read",
 	}
 	body, _ := json.Marshal(payload)
 

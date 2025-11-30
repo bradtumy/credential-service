@@ -9,6 +9,12 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U credentialsvc -d credentialsvc"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   issuer:
     build:
@@ -35,7 +41,8 @@ services:
     ports:
       - "8081:8081"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   s2s-api:
     build:
@@ -54,7 +61,7 @@ services:
       dockerfile: build/samples_client.Dockerfile
     environment:
       ISSUER_BASE_URL: http://issuer:8080
-      GATEWAY_AUTHORIZE_URL: http://verifier:8081/v1/gateway/authorize
+      GATEWAY_AUTHORIZE_URL: http://verifier:8081
       API_BASE_URL: http://s2s-api:8082
     depends_on:
       - issuer
