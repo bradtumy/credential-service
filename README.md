@@ -1,5 +1,21 @@
 # Credential Service
 
+## Audit Logging Demo
+
+- Purpose: Demonstrates correlation IDs and structured audit/security events across HTTP endpoints.
+- Run:
+  - `go run ./examples/audit-logging-demo/main.go`
+- What it does:
+  - Starts a local server on `:8086` with standard middleware (correlation IDs, audit, security headers).
+  - Calls `/health`, issues a credential via `/v1/credentials/issue`, sends an invalid request, and emits manual admin/security events.
+  - Prints JSON audit events including `event_type`, `correlation_id`, `tenant_id`, and outcome.
+- Headers used:
+  - `X-Correlation-ID`: propagates request tracing.
+  - `X-Tenant-ID`: associates events with a tenant.
+- Notes:
+  - The demo is self-contained; no external services required.
+  - Logs default to JSON at `info` level; configure via `internal/logging.Init()` in services.
+
 A robust microservice designed for creating, managing, and verifying **W3C-compliant Verifiable Credentials (VCs)**. This service allows organizations to issue credentials, link them to **Decentralized Identifiers (DIDs)**, and enable secure, privacy-preserving verification across multiple platforms. The platform now ships with agent-mode helpers so AI agents can safely act on behalf of humans with scoped, short-lived credentials.
 
 ## 🚀 Quick Start

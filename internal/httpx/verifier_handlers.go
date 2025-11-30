@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bradtumy/credential-service/internal/domain"
+	"github.com/bradtumy/credential-service/internal/logging"
 	"github.com/bradtumy/credential-service/internal/metrics"
 	"github.com/bradtumy/credential-service/internal/version"
 )
@@ -97,6 +98,21 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			default:
 				WriteAPIError(w, http.StatusBadRequest, reason, err.Error())
 			}
+			
+			// Log failed verification attempt
+			if len(tokens) > 0 {
+				logging.LogAuditEvent(r.Context(), logging.AuditEvent{
+					EventType: logging.AuditEventCredentialVerified,
+					Outcome:   "failure",
+					Reason:    reason,
+					Metadata: map[string]interface{}{
+						"expected_audience": req.ExpectedAudience,
+						"credential_count": len(tokens),
+						"error": err.Error(),
+					},
+				})
+			}
+			
 			verifierMetrics.IncVerificationFailure(reason)
 			return
 		}
@@ -106,6 +122,21 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 		if chainResult.DelegationDepth > 0 {
 			actingOnBehalfOf = chainResult.RootDelegator
 		}
+
+		// Log successful verification
+		logging.LogAuditEvent(r.Context(), logging.AuditEvent{
+			EventType:  logging.AuditEventCredentialVerified,
+			SubjectDID: leaf.Subject,
+			IssuerDID:  leaf.Issuer,
+			Outcome:    "success",
+			Metadata: map[string]interface{}{
+				"expected_audience":     req.ExpectedAudience,
+				"credential_count":     len(tokens),
+				"delegation_depth":     chainResult.DelegationDepth,
+				"acting_on_behalf_of":  actingOnBehalfOf,
+				"expires_at":          leaf.ExpiresAt.Format(time.RFC3339),
+			},
+		})
 
 		verifierMetrics.IncVerificationSuccess("ok")
 		w.Header().Set("Content-Type", "application/json")

@@ -7,6 +7,8 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,10 +16,15 @@ import (
 	"time"
 
 	"github.com/bradtumy/credential-service/internal/domain"
+	"github.com/bradtumy/credential-service/internal/logging"
 	"github.com/bradtumy/credential-service/internal/version"
 )
 
 func TestVerifierHandlerSuccess(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
@@ -70,6 +77,10 @@ func TestVerifierHandlerSuccess(t *testing.T) {
 }
 
 func TestVerifierHandlerDelegatedCredential(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
@@ -123,6 +134,10 @@ func TestVerifierHandlerDelegatedCredential(t *testing.T) {
 }
 
 func TestVerifierHandlerExpiredCredential(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
@@ -158,6 +173,10 @@ func TestVerifierHandlerExpiredCredential(t *testing.T) {
 }
 
 func TestVerifierHandlerUntrustedIssuer(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 

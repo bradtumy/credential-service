@@ -3,6 +3,8 @@ package httpx
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,10 +14,15 @@ import (
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/logging"
 	"github.com/bradtumy/credential-service/internal/version"
 )
 
 func TestIssueHandlerSuccess(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
@@ -56,6 +63,10 @@ func TestIssueHandlerSuccess(t *testing.T) {
 }
 
 func TestIssueHandlerMissingSubject(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
@@ -83,6 +94,10 @@ func TestIssueHandlerMissingSubject(t *testing.T) {
 }
 
 func TestDelegateHandlerSuccess(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
@@ -134,6 +149,10 @@ func TestDelegateHandlerSuccess(t *testing.T) {
 }
 
 func TestDelegateHandlerScopeExpansion(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
@@ -162,6 +181,10 @@ func TestDelegateHandlerScopeExpansion(t *testing.T) {
 }
 
 func TestDelegateHandlerTTLExpansion(t *testing.T) {
+	// Initialize logging for tests
+	logging.Init("info")
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
