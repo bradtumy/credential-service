@@ -175,7 +175,9 @@ func TestVerifierHandlerExpiredCredential(t *testing.T) {
 func TestVerifierHandlerUntrustedIssuer(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
-	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	// Capture audit logs
+	var buf bytes.Buffer
+	logging.AuditLogger = slog.New(slog.NewJSONHandler(&buf, nil))
 	
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
@@ -203,6 +205,18 @@ func TestVerifierHandlerUntrustedIssuer(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("expected status 403, got %d", rr.Code)
+	}
+
+	// Assert an audit log was emitted with failure and reason untrusted_issuer
+	out := buf.String()
+	if out == "" {
+		t.Fatalf("expected audit logs, got none")
+	}
+	if !strings.Contains(out, "\"event_type\":\"credential.verified\"") {
+		t.Fatalf("expected credential.verified event, got: %s", out)
+	}
+	if !strings.Contains(out, "\"outcome\":\"failure\"") || !strings.Contains(out, "untrusted_issuer") {
+		t.Fatalf("expected failure outcome with untrusted_issuer reason, got: %s", out)
 	}
 }
 
