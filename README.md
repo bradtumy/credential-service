@@ -10,7 +10,21 @@ A robust microservice designed for creating, managing, and verifying **W3C-compl
    docker compose up --build
    ```
 
-2. **Issue a credential**
+2. **Bootstrap admin access** ⚠️ **Required for admin operations**
+
+   ```bash
+   # Create root admin VC (6-month validity)
+   curl -X POST http://localhost:8080/v1/setup/bootstrap \
+     -H "Content-Type: application/json" \
+     -d '{
+       "issuer_did": "did:example:admin",
+       "issuer_name": "System Administrator"
+     }'
+   
+   # Save the returned admin_vc token for admin operations
+   ```
+
+3. **Issue a user credential**
 
    ```bash
    curl -X POST http://localhost:8080/v1/credentials/issue \
@@ -22,15 +36,15 @@ A robust microservice designed for creating, managing, and verifying **W3C-compl
      }'
    ```
 
-3. **Verify the credential**
+4. **Verify the credential**
 
    ```bash
    curl -X POST http://localhost:8081/v1/credentials/verify \
      -H "Content-Type: application/json" \
-     -d '{"credential": "<jwt-from-step-2>"}'
+     -d '{"credential": "<jwt-from-step-3>"}'
    ```
 
-4. **Test the full workflow**
+5. **Test the full workflow**
 
    ```bash
    go run ./examples/go-basic
@@ -44,19 +58,44 @@ Use the Go helper to mint a short-lived delegated credential for an agent and ca
 go run ./examples/agent-basic
 ```
 
+## 🔐 Admin Authentication
+
+**🚨 Important**: Admin APIs now require authentication with admin VCs. You must bootstrap the system first.
+
+### **Bootstrap Admin System**
+```bash
+# 1. Bootstrap creates issuer + root admin VC (one-time setup)
+curl -X POST http://localhost:8080/v1/setup/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{"root_admin_did": "did:jwk:your-admin-identity"}'
+
+# 2. Save the returned root_admin_credential for admin operations
+export ADMIN_VC="eyJhbGciOiJFZERTQSI..."
+```
+
+### **Admin Operations Require Authentication**
+```bash
+# All admin endpoints now require Authorization header
+curl -X POST http://localhost:8081/v1/admin/policies \
+  -H "Authorization: Bearer $ADMIN_VC" \
+  -H "Content-Type: application/json" \
+  -d '{...}'
+```
+
 ## API Overview
 
 The platform exposes versioned HTTP endpoints under `/v1`:
 
 - **Issuer Service (port 8080)**:
+  - `POST /v1/setup/bootstrap` — **bootstrap system issuer + root admin VC**
   - `POST /v1/credentials/issue` — issue a verifiable credential
-  - `POST /v1/credentials/delegate` — mint a scoped delegated credential
+  - `POST /v1/credentials/delegate` — mint a scoped delegated credential  
   - `GET /healthz`, `GET /readyz` — health checks
 
 - **Verifier Service (port 8081)**:
   - `POST /v1/credentials/verify` — verify a credential chain
   - `POST /v1/gateway/authorize` — perform authorization and mint synthetic JWT
-  - `POST /v1/admin/policies` — manage authorization policies
+  - **`POST /v1/admin/policies`** — **🔐 manage authorization policies (admin VC required)**
   - `GET /healthz`, `GET /readyz` — health checks
 
 - **S2S API (port 8082)**:
@@ -93,6 +132,8 @@ All JSON errors follow a consistent envelope:
 - **[OpenAPI Spec](api/openapi.yaml)** — structured API contracts
 
 **Key Concepts to Understand**:
+- **Admin vs User VCs**: Admin VCs have `"vc_type": "admin"` and elevated permissions; user VCs cannot access admin endpoints
+- **Bootstrap Security**: Initial admin VC creation requires the bootstrap endpoint for secure system initialization  
 - **Credentials vs Policies**: Credentials prove identity/claims, policies control access to resources
 - **Delegation Chains**: How agents inherit scoped permissions from parent credentials  
 - **Trust Registry**: Which issuers are allowed to create valid credentials
@@ -115,10 +156,33 @@ This service issues and verifies VCs bound to DIDs so that humans, services, and
 - **Gateway Integration**: Generate synthetic JWTs for downstream API authorization
 - **Credential Chain Verification**: Validate delegation chains with proper scope inheritance
 - **Microservice Architecture**: Containerized services for issuer, verifier, and demo APIs
+- **Admin Authentication**: Admin endpoints protected by verifiable credentials with super-admin roles
 
+## 🔐 Security Model
 
+### Admin vs User VCs
 
+The system enforces strict separation between administrative and user operations:
 
+- **Admin VCs**: Have `"vc_type": "admin"` and `"super-admin"` role, valid for 6 months
+- **User VCs**: Standard credentials for application access, cannot access admin endpoints
+- **Bootstrap Required**: Initial admin VC must be created via `/v1/setup/bootstrap`
+
+### Admin Endpoint Protection
+
+All `/v1/admin/*` endpoints require a valid admin VC in the Authorization header:
+
+```bash
+curl -X POST http://localhost:8081/v1/admin/policies \
+  -H "Authorization: Bearer <admin-vc-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "example-policy", ...}'
+```
+
+**Security guarantees:**
+- User VCs are rejected with `"admin_credential_required"` error
+- Admin VCs are validated for proper type, role, and signature
+- Bootstrap endpoint is unprotected (one-time setup only)
 
 ## Requirements
 
@@ -176,13 +240,14 @@ curl -X POST http://localhost:8080/v1/credentials/issue \
   }'
 ```
 
-#### **2. Create Matching Policy**
+#### **2. Create Matching Policy** 🔐 **Requires Admin VC**
 
-The default policy only allows access to `"orders"` with `"read"` action. For custom resources, create a policy:
+The default policy only allows access to `"orders"` with `"read"` action. For custom resources, create a policy using your admin VC:
 
 ```bash
 curl -X POST http://localhost:8081/v1/admin/policies \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <admin-vc-from-bootstrap>" \
   -d '{
     "name": "custom-demo-policy",
     "description": "Allow access to your custom resource",
@@ -277,11 +342,23 @@ Instructions for running tests, if applicable.
 go test ./...
 ```
 
-Here's an updated section for the `README.md` that covers the new Verifier service:
+## 🛡️ Security Best Practices
 
----
+### Production Deployment
 
+- **Secure Bootstrap**: Run bootstrap endpoint only during initial setup, then disable or restrict access
+- **Admin VC Storage**: Store admin VCs securely (encrypted storage, key management systems)
+- **Network Security**: Use HTTPS/TLS for all API communications in production
+- **VC Rotation**: Regularly rotate admin VCs before 6-month expiry
+- **Audit Logging**: Monitor all admin endpoint access for security auditing
 
+### Development vs Production
+
+This README shows HTTP endpoints for simplicity. In production:
+- Use HTTPS with proper certificates
+- Implement network-level security (VPNs, firewalls)
+- Regular security assessments of the credential verification logic
+- Consider implementing admin VC revocation lists for immediate access termination
 
 ## Contributing
 

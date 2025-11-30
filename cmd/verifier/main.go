@@ -125,7 +125,15 @@ func main() {
 
 	policyEngine := policy.NewEngine(policyStore)
 	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signer, issuerDID, decisionCache, limiter, nil, time.Now)
-	httpx.RegisterPolicyAdminRoutes(mux, policyStore, cfg.DefaultTenantID)
+	
+	// Create protected admin routes
+	adminMux := http.NewServeMux()
+	httpx.RegisterPolicyAdminRoutes(adminMux, policyStore, cfg.DefaultTenantID)
+	
+	// Apply admin authentication middleware to all /v1/admin routes
+	adminMiddleware := httpx.AdminAuthMiddleware(resolver, trustRegistry, cfg.DefaultTenantID)
+	mux.Handle("/v1/admin/", adminMiddleware(adminMux))
+	
 	httpx.RegisterHealthRoutes(mux, readiness)
 
 	handler := httpx.RequestContext(httpx.TenantMiddleware(tenantResolver, httpx.LoggingMiddleware(mux)))

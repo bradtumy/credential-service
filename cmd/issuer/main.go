@@ -25,6 +25,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	httpx.RegisterIssuerRoutes(mux, store, cfg)
+	httpx.RegisterBootstrapRoutes(mux, store, cfg, nil)  // Add bootstrap endpoint
 	httpx.RegisterHealthRoutes(mux, nil)
 
 	handler := httpx.RequestContext(httpx.TenantMiddleware(resolver, httpx.LoggingMiddleware(mux)))
