@@ -17,6 +17,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/metrics"
 )
 
 func TestVerifierIntegration(t *testing.T) {
@@ -45,7 +46,7 @@ func TestVerifierIntegration(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	httpx.RegisterVerifierRoutes(mux, resolver, registry, cfg.DefaultTenantID, time.Now)
+	httpx.RegisterVerifierRoutes(mux, resolver, registry, cfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
 
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
@@ -97,7 +98,7 @@ func TestVerifierIntegrationRejectsTamperedToken(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	httpx.RegisterVerifierRoutes(mux, resolver, registry, cfg.DefaultTenantID, time.Now)
+	httpx.RegisterVerifierRoutes(mux, resolver, registry, cfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
 
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)

@@ -16,6 +16,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/httpx"
 	"github.com/bradtumy/credential-service/internal/keystore"
+	"github.com/bradtumy/credential-service/internal/metrics"
 )
 
 // TestDistributedDIDResolution tests that a verifier can verify credentials 
@@ -67,7 +68,7 @@ func TestDistributedDIDResolution(t *testing.T) {
 	}
 	
 	verifierMux := http.NewServeMux()
-	httpx.RegisterVerifierRoutes(verifierMux, resolver, trustRegistry, verifierCfg.DefaultTenantID, time.Now)
+	httpx.RegisterVerifierRoutes(verifierMux, resolver, trustRegistry, verifierCfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
 	verifierServer := httptest.NewServer(verifierMux)
 	t.Cleanup(verifierServer.Close)
 	
