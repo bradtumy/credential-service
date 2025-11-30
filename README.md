@@ -216,11 +216,16 @@ publicKey, err := didResolver.ResolvePublicKey(ctx, "did:jwk:abc123...")
 - **Use Case**: Perfect for microservices, agents, and ephemeral identities
 - **Example**: `did:jwk:eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6Ik9QRGhLb3hQeXJqbmJZUWc1cFNHS2FoOXFMQ3g2eE5vVEdJdHZ1MDhiZ1UifQ`
 
-#### **did:web (Future Support)** 🚧
+#### **did:web (Production Ready)** ✅
 - **Format**: `did:web:example.org` or `did:web:bank.example.com:departments:hr`
 - **Resolution**: HTTPS lookup to `https://example.org/.well-known/did.json`
 - **Use Case**: Enterprise organizations with existing web infrastructure
-- **Status**: Planned for Phase 2
+- **Status**: Fully implemented with security-first approach
+- **Security Features**:
+  - HTTPS-only by default (configurable for testing)
+  - Document size limits (10KB default)
+  - Request timeouts (10s default)  
+  - Comprehensive input validation
 
 > **Note**: The repository includes a `resolver-service` for DID document storage/retrieval. The **DID Resolution** described here is different - it's the built-in capability for resolving public keys directly from DIDs during credential verification.
 
@@ -413,6 +418,63 @@ curl http://localhost:8081/v1/admin/policies | jq '.policies[]'
    # Wildcard resources
    curl -X POST http://localhost:8081/v1/admin/policies \
      -d '{"name": "api-access", "effect": "allow", "actions": ["read"], "resources": ["api/*"], "subjects": ["any"]}'
+   ```
+
+### **Using did:web for Enterprise Deployment**
+
+The credential service now supports `did:web` for organizations with existing web infrastructure. This enables enterprise deployments where public keys are hosted on your existing domain.
+
+#### **Setting Up did:web Identity**
+
+1. **Host DID Document**: Create a DID document at `https://yourdomain.com/.well-known/did.json`
+
+   ```json
+   {
+     "id": "did:web:yourdomain.com",
+     "verificationMethod": [{
+       "id": "did:web:yourdomain.com#key1",
+       "type": "JsonWebKey2020",
+       "controller": "did:web:yourdomain.com", 
+       "publicKeyJwk": {
+         "kty": "OKP",
+         "crv": "Ed25519",
+         "x": "your-base64url-encoded-public-key"
+       }
+     }]
+   }
+   ```
+
+2. **Add to Trust Registry**: Register the did:web identity as a trusted issuer
+
+   ```bash
+   curl -X POST http://localhost:8081/v1/admin/trust-registry \
+     -H "Authorization: Bearer <admin-vc>" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "issuer_did": "did:web:yourdomain.com",
+       "trusted": true
+     }'
+   ```
+
+3. **Issue Credentials**: Use the did:web identity to issue credentials
+
+   ```bash
+   curl -X POST http://localhost:8080/v1/credentials/issue \
+     -H "Content-Type: application/json" \
+     -d '{
+       "subject_did": "did:jwk:user-key-here",
+       "ttl_seconds": 3600,
+       "claims": {"scope": ["orders:read"]},
+       "issuer_override": "did:web:yourdomain.com"
+     }'
+   ```
+
+#### **Advanced did:web Configuration**
+
+- **Subdomain/Path Support**: `did:web:bank.example.com:departments:hr` resolves to `https://bank.example.com/departments/hr/did.json`
+- **URL Encoding**: `did:web:example.com%3A8080` resolves to `https://example.com:8080/.well-known/did.json`
+- **Security Features**: HTTPS-only by default, 10KB document size limit, 10-second timeout
+- **Testing**: Set `AllowInsecureWeb: true` in configuration for HTTP testing (never use in production)
    ```
 
 ### **Demo Troubleshooting**

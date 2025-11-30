@@ -76,6 +76,7 @@ func main() {
 	// Create DID resolver for distributed public key resolution
 	didResolver, err := domain.NewCompositeResolver(
 		domain.NewJWKResolver(), // Support did:jwk method
+		domain.NewWebResolver(), // Support did:web method
 	)
 	if err != nil {
 		log.Fatalf("create DID resolver: %v", err)
