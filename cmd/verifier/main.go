@@ -53,6 +53,24 @@ func main() {
 		log.Fatalf("seed default tenant: %v", err)
 	}
 
+	// Seed a default policy to allow the demo to work
+	defaultPolicy := &policy.Policy{
+		TenantID:    cfg.DefaultTenantID,
+		Name:        "demo-read-orders",
+		Description: "Allow reading orders for demo",
+		Effect:      policy.EffectAllow,
+		Actions:     []string{"read"},
+		Resources:   []string{"orders"},
+		Subjects:    []string{"any"}, // Allow any subject
+		Priority:    100,
+		Enabled:     true,
+	}
+	if err := policyStore.CreatePolicy(context.Background(), defaultPolicy); err != nil {
+		log.Printf("warning: failed to seed default policy (may already exist): %v", err)
+	} else {
+		log.Printf("successfully created default policy: %s", defaultPolicy.Name)
+	}
+
 	tenantResolver := tenant.Resolver{Mode: tenancyMode, DefaultTenantID: cfg.DefaultTenantID, Store: tenantStore}
 
 	issuerKeys := make(map[string]crypto.PublicKey)

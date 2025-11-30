@@ -3,7 +3,7 @@ package keystore
 import (
 	"crypto"
 	"crypto/ed25519"
-	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"sync"
 )
@@ -39,10 +39,16 @@ func (m *MemoryKeyStore) GetSigningKey(tenantID string) (crypto.Signer, error) {
 		return signer, nil
 	}
 
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, fmt.Errorf("generate ed25519 key: %w", err)
-	}
+	// Use deterministic key generation for demo purposes
+	// This ensures the same tenant ID always gets the same keypair across services
+	seed := sha256.Sum256([]byte("demo-seed-" + tenantID))
+	priv := ed25519.NewKeyFromSeed(seed[:])
+
+	// Keep the random generation as fallback (commented out)
+	// _, priv, err := ed25519.GenerateKey(rand.Reader)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("generate ed25519 key: %w", err)
+	// }
 
 	m.keys[tenantID] = priv
 	return priv, nil
