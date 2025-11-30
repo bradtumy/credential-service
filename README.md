@@ -83,13 +83,20 @@ All JSON errors follow a consistent envelope:
 }
 ```
 
-## Developer Resources
+## 📚 Learn More
 
-- [API Overview](API_OVERVIEW.md) — endpoint guide with sample flows.
-- [AGENTS.md](AGENTS.md) — agent lifecycle notes.
-- [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — deeper design context.
-- [Quickstart](#-5-minute-quickstart) — fast start instructions.
-- [OpenAPI Spec](api/openapi.yaml) — structured contract for the HTTP APIs.
+- **[Demo Guide](#-demo-guide)** — step-by-step instructions for trying the system with your own data
+- **[API Overview](API_OVERVIEW.md)** — complete endpoint reference with examples  
+- **[Policy Engine](POLICY_ENGINE.md)** — authorization system deep dive
+- **[Agent Delegation](AGENTS.md)** — how AI agents can act on behalf of users
+- **[Developer Guide](DEVELOPER_GUIDE.md)** — architecture and design decisions
+- **[OpenAPI Spec](api/openapi.yaml)** — structured API contracts
+
+**Key Concepts to Understand**:
+- **Credentials vs Policies**: Credentials prove identity/claims, policies control access to resources
+- **Delegation Chains**: How agents inherit scoped permissions from parent credentials  
+- **Trust Registry**: Which issuers are allowed to create valid credentials
+- **Multi-tenancy**: How organizations are isolated from each other
 
 ## What Are DIDs and VCs?
 
@@ -135,12 +142,127 @@ This service issues and verifies VCs bound to DIDs so that humans, services, and
    docker compose up --build
    ```
 
+## 🎯 Demo Guide
+
+### **Built-in Demo (Works Out of the Box)**
+
+The system includes a working demo that issues credentials, verifies them, and accesses a protected API:
+
+```bash
+# Run the complete demo workflow
+go run ./examples/go-basic
+
+# Or run the agent delegation demo
+go run ./examples/agent-basic
+```
+
+### **Custom Demo: Using Your Own Data**
+
+⚠️ **Important**: The system uses **policy-based authorization**. If you change credential data, you may need to update policies to match.
+
+#### **1. Issue Credential with Custom Data**
+
+```bash
+curl -X POST http://localhost:8080/v1/credentials/issue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject_did": "did:jwk:your-custom-user",
+    "ttl_seconds": 3600,
+    "claims": {
+      "scope": ["your-resource:read"],
+      "roles": ["your-role"],
+      "department": "engineering"
+    }
+  }'
+```
+
+#### **2. Create Matching Policy**
+
+The default policy only allows access to `"orders"` with `"read"` action. For custom resources, create a policy:
+
+```bash
+curl -X POST http://localhost:8081/v1/admin/policies \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "custom-demo-policy",
+    "description": "Allow access to your custom resource",
+    "effect": "allow",
+    "actions": ["read", "write"],
+    "resources": ["your-resource", "your-resource/*"],
+    "subjects": ["any"],
+    "conditions": {
+      "scope_contains": "your-resource:read"
+    },
+    "priority": 50,
+    "enabled": true
+  }'
+```
+
+#### **3. Test Authorization**
+
+```bash
+# Verify credential and check authorization
+curl -X POST http://localhost:8081/v1/gateway/authorize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "credentials": ["<your-jwt-credential>"],
+    "resource": "your-resource",
+    "action": "read",
+    "want_synthetic_jwt": true
+  }'
+```
+
+### **Policy Management for Demos**
+
+#### **View Current Policies**
+```bash
+curl http://localhost:8081/v1/admin/policies | jq '.policies[]'
+```
+
+#### **Common Demo Scenarios**
+
+1. **Role-based Access**:
+   ```bash
+   # Issue credential with role
+   curl -X POST http://localhost:8080/v1/credentials/issue \
+     -d '{"subject_did": "did:jwk:admin", "claims": {"roles": ["admin"]}}'
+   
+   # Create role-based policy  
+   curl -X POST http://localhost:8081/v1/admin/policies \
+     -d '{"name": "admin-access", "effect": "allow", "actions": ["*"], "resources": ["*"], "subjects": ["role:admin"]}'
+   ```
+
+2. **Scope-based Access**:
+   ```bash
+   # Different scopes require different policies
+   curl -X POST http://localhost:8080/v1/credentials/issue \
+     -d '{"subject_did": "did:jwk:user", "claims": {"scope": ["payments:read", "users:write"]}}'
+   ```
+
+3. **Resource Patterns**:
+   ```bash
+   # Wildcard resources
+   curl -X POST http://localhost:8081/v1/admin/policies \
+     -d '{"name": "api-access", "effect": "allow", "actions": ["read"], "resources": ["api/*"], "subjects": ["any"]}'
+   ```
+
+### **Demo Troubleshooting**
+
+**❌ Problem**: Getting `{"allowed": false, "reason": "policy_denied"}`
+**✅ Solution**: Create a policy that matches your credential's subject, claims, and target resource.
+
+**❌ Problem**: Credential verification fails
+**✅ Solution**: Check that the issuer is trusted and credential hasn't expired.
+
+**❌ Problem**: `scope_contains` condition fails
+**✅ Solution**: Ensure credential `claims.scope` includes the required values.
+
 ## Configuration
 
 The services are configured via environment variables in `docker-compose.yml`:
 
 - **Issuer**: `ISSUER_HTTP_PORT=8080`
-- **Verifier**: `VERIFIER_HTTP_PORT=8081`, database connection for trust registry
+- **Verifier**: `VERIFIER_HTTP_PORT=8081`, database connection for trust registry and policies
 - **S2S API**: `API_HTTP_PORT=8082` for demo protected resources
 
 
