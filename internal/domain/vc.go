@@ -322,14 +322,17 @@ func IssueBasicCredentialWithFormat(issuerDID, subjectDID string, signer crypto.
 		return token, nil
 	}
 
-	var credential VerifiableCredential
-	if err := json.Unmarshal(payloadBytes, &credential); err != nil {
+	// Unmarshal as VCJWTPayload to preserve JWT wrapper structure
+	var vcjwtPayload VCJWTPayload
+	if err := json.Unmarshal(payloadBytes, &vcjwtPayload); err != nil {
 		return token, nil
 	}
 
-	credential.Format = format
+	// Set format on the nested VC
+	vcjwtPayload.VC.Format = format
 
-	newPayload, err := encodeSegment(credential)
+	// Re-encode the full VCJWTPayload structure
+	newPayload, err := encodeSegment(vcjwtPayload)
 	if err != nil {
 		return token, nil
 	}

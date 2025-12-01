@@ -211,7 +211,23 @@ func verifySingleCredential(token string, disclosures []string, deps VerifierDep
 		return VerifiableCredential{}, ErrInvalidToken
 	}
 
-	publicKey, err := deps.ResolveIssuerPublicKey(credential.Issuer)
+	// For legacy flat format, use ISS/SUB/EXP fields if Issuer/Subject/ExpiresAt are empty
+	issuerDID := credential.Issuer
+	if issuerDID == "" && credential.ISS != "" {
+		issuerDID = credential.ISS
+		credential.Issuer = credential.ISS
+	}
+	if credential.Subject == "" && credential.SUB != "" {
+		credential.Subject = credential.SUB
+	}
+	if credential.ExpiresAt.IsZero() && credential.EXP > 0 {
+		credential.ExpiresAt = time.Unix(credential.EXP, 0).UTC()
+	}
+	if credential.IssuedAt.IsZero() && credential.IAT > 0 {
+		credential.IssuedAt = time.Unix(credential.IAT, 0).UTC()
+	}
+
+	publicKey, err := deps.ResolveIssuerPublicKey(issuerDID)
 	if err != nil {
 		return VerifiableCredential{}, fmt.Errorf("resolve issuer: %w", ErrUntrustedIssuer)
 	}

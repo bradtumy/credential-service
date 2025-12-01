@@ -92,17 +92,36 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
    console.log('DID:', keypair.did);
    ```
    
-4. **Issue a credential via the issuer API (port 8080)**
+4. **Add the issuer to the verifier's trust registry**
+
+   The issuer and verifier use separate signing keys. The verifier needs to trust the issuer's DID:
+   
+   ```bash
+   # Extract issuer DID from logs
+   ISSUER_DID=$(docker logs credential-service-issuer-1 2>&1 | \
+     grep -o 'issuer_did":"did:jwk:[^"]*' | head -1 | cut -d'"' -f3)
+   echo "Issuer DID: $ISSUER_DID"
+   
+   # Add issuer to verifier's trust registry
+   curl -X POST http://localhost:8081/v1/trust/issuers \
+     -H "Content-Type: application/json" \
+     -d '{"issuer_did": "'$ISSUER_DID'"}' | jq
+   ```
+   
+5. **Issue a credential via the issuer API (port 8080)**
 
    ```bash
-   # Using did:jwk (DID with embedded public key) for the subject
+   # If you generated a DID in step 3, use $ALICE_DID
+   # Otherwise, use this example DID for quick testing
+   ALICE_DID="${ALICE_DID:-did:jwk:eyJrdHkiOiJPS1AiLCJjcnYiOiJFZDI1NTE5IiwieCI6IjExcVlBWUtGMWJuRjNyeEh0Q19FN2I4N1ZRdHJhRUp2WVU0aGRxNFU5SWsifQ}"
+   
    VC=$(curl -s -X POST http://localhost:8080/v1/credentials/issue \
      -H "Content-Type: application/json" \
-     -d '{
-       "subject_did": "did:jwk:eyJrdHkiOiJPS1AiLCJjcnYiOiJFZDI1NTE5IiwieCI6IjExcVlBWUtGMWJuRjNyeEh0Q19FN2I4N1ZRdHJhRUp2WVU0aGRxNFU5SWsifQ",
-       "ttl_seconds": 600,
-       "claims": {"aud": "sample-api", "scope": "read:orders"}
-     }' | jq -r '.credential')
+     -d "{
+       \"subject_did\": \"$ALICE_DID\",
+       \"ttl_seconds\": 600,
+       \"claims\": {\"aud\": \"sample-api\", \"scope\": \"read:orders\"}
+     }" | jq -r '.credential')
 
    # The response includes a W3C VC-JWT compliant signed credential with typ: "vc+jwt"
    # JWT header: {"alg":"EdDSA","typ":"vc+jwt"}
@@ -110,17 +129,18 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
    # with the VC structure nested under the "vc" claim per W3C spec
    ```
 
-5. **Verify the credential through the verifier API (port 8081)**
+6. **Verify the credential through the verifier API (port 8081)**
+   
    ```bash
    curl -s -X POST http://localhost:8081/v1/credentials/verify \
      -H "Content-Type: application/json" \
      -d '{"credential": "'$VC'", "expected_audience": "sample-api"}' | jq
 
-   # Sample response:
-   # { "active": true, "issuer": "did:jwk:...", "subject": "did:jwk:eyJrdHk..." }
+   # Expected response:
+   # { "active": true, "issuer": "did:jwk:...", "subject": "did:jwk:..." }
    ```
 
-6. **Authorize through the gateway API and mint a synthetic JWT**
+7. **Authorize through the gateway API and mint a synthetic JWT**
    ```bash
    SYNTH=$(curl -s -X POST http://localhost:8081/v1/gateway/authorize \
      -H "Content-Type: application/json" \
@@ -133,13 +153,13 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
      }' | tee /dev/tty | jq -r '.synthetic_jwt')
    ```
 
-7. **Call the protected demo API using the synthetic JWT**
+8. **Call the protected demo API using the synthetic JWT**
    ```bash
    curl -s http://localhost:8082/orders \
      -H "Authorization: Bearer $SYNTH" | jq
    ```
 
-The verifier ships with a default policy that allows `read` on `orders` for any subject, and the trust registry is seeded with the local issuer key, so the above API flow works out of the box.
+The verifier ships with a default policy that allows `read` on `orders` for any subject. For production use, you'll want to add trusted issuers to the trust registry via the admin API (see [GATEWAY_INTEGRATION.md](docs/GATEWAY_INTEGRATION.md)).
 
 ### Delegation in one command (optional)
 Mint a constrained agent credential and authorize it:

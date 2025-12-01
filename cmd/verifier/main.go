@@ -175,6 +175,9 @@ func main() {
 	policyEngine := policy.NewEngine(policyStore)
 	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signer, issuerDID, decisionCache, limiter, gatewayMetrics, time.Now)
 	
+	// Register trust registry management routes (development mode - no auth)
+	httpx.RegisterTrustRegistryRoutes(mux, trustRegistry, cfg.DefaultTenantID)
+	
 	// Create protected admin routes
 	adminMux := http.NewServeMux()
 	httpx.RegisterPolicyAdminRoutes(adminMux, policyStore, cfg.DefaultTenantID)
