@@ -134,6 +134,78 @@ func verifySingleCredential(token string, disclosures []string, deps VerifierDep
 		return VerifiableCredential{}, ErrInvalidToken
 	}
 
+	// Try W3C VC-JWT format first (vc claim wrapper)
+	var vcjwtPayload VCJWTPayload
+	if err := json.Unmarshal(payloadBytes, &vcjwtPayload); err == nil && vcjwtPayload.VC.Context != nil {
+		// W3C VC-JWT format: extract credential and populate JWT fields
+		credential := vcjwtPayload.VC
+		credential.ISS = vcjwtPayload.ISS
+		credential.SUB = vcjwtPayload.SUB
+		credential.JTI = vcjwtPayload.JTI
+		credential.IAT = vcjwtPayload.IAT
+		credential.EXP = vcjwtPayload.EXP
+		credential.NBF = vcjwtPayload.NBF
+
+		// Populate legacy fields from JWT claims and VC data
+		if credential.IAT > 0 {
+			credential.IssuedAt = time.Unix(credential.IAT, 0).UTC()
+		}
+		if credential.EXP > 0 {
+			credential.ExpiresAt = time.Unix(credential.EXP, 0).UTC()
+		}
+		credential.Subject = vcjwtPayload.SUB
+		// Ensure Claims field mirrors CredentialSubject for backward compatibility
+		if credential.Claims == nil && credential.CredentialSubject != nil {
+			credential.Claims = credential.CredentialSubject
+		}
+
+		// Verify signature with issuer from vc.issuer
+		publicKey, err := deps.ResolveIssuerPublicKey(credential.Issuer)
+		if err != nil {
+			return VerifiableCredential{}, fmt.Errorf("resolve issuer: %w", ErrUntrustedIssuer)
+		}
+
+		edKey, ok := publicKey.(ed25519.PublicKey)
+		if !ok {
+			return VerifiableCredential{}, ErrInvalidToken
+		}
+
+		signingInput := parts[0] + "." + parts[1]
+		signatureBytes, err := base64.RawURLEncoding.DecodeString(parts[2])
+		if err != nil {
+			return VerifiableCredential{}, ErrInvalidToken
+		}
+
+		if !ed25519.Verify(edKey, []byte(signingInput), signatureBytes) {
+			return VerifiableCredential{}, ErrInvalidSignature
+		}
+
+		// Validate expiration using EXP claim
+		if credential.EXP > 0 && now.Unix() >= credential.EXP {
+			return VerifiableCredential{}, ErrExpiredCredential
+		}
+
+		// Validate issued time with clock skew
+		if credential.IAT > 0 && credential.IAT > now.Add(1*time.Minute).Unix() {
+			return VerifiableCredential{}, ErrIssuedInFuture
+		}
+
+		if len(credential.SDDigests) > 0 {
+			if err := applyDisclosures(&credential, disclosures); err != nil {
+				return VerifiableCredential{}, err
+			}
+		}
+
+		if expectedAudience != "" {
+			if aud, ok := credential.Claims["aud"]; !ok || aud != expectedAudience {
+				return VerifiableCredential{}, ErrUnexpectedAudience
+			}
+		}
+
+		return credential, nil
+	}
+
+	// Fallback: try legacy flat format for backward compatibility
 	var credential VerifiableCredential
 	if err := json.Unmarshal(payloadBytes, &credential); err != nil {
 		return VerifiableCredential{}, ErrInvalidToken
