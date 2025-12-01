@@ -57,12 +57,42 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
    curl http://localhost:8082/orders -i # expect 401 without token
    ```
 
-3. **Issue a credential via the issuer API (port 8080)**
+3. **Generate a DID for your subject (optional)**
    
-   The examples below use pre-generated `did:jwk` DIDs for simplicity. In production, subjects would generate their own key pairs and construct DIDs. For testing, you can:
-   - Use the example DIDs provided (they're valid `did:jwk` format with embedded Ed25519 public keys)
-   - Generate your own using tools like `step crypto` or the Go/Node SDKs
-   - Use `did:web` DIDs if you control a domain and can host DID documents
+   You can generate DIDs three ways:
+   
+   **Option A: Use the API**
+   ```bash
+   # Generate a DID via HTTP API (only returns the DID, not the private key for security)
+   ALICE_DID=$(curl -s -X POST http://localhost:8080/v1/keys/generate \
+     -H "Content-Type: application/json" \
+     -d '{"algorithm": "EdDSA"}' | jq -r '.did')
+   echo "Generated DID: $ALICE_DID"
+   ```
+   
+   **Option B: Use the CLI tool**
+   ```bash
+   # Build and use the keygen CLI
+   make keygen
+   ./bin/keygen -output alice-key.pem
+   # Outputs: DID: did:jwk:eyJrdHk... and saves private key to alice-key.pem
+   ```
+   
+   **Option C: Use the SDK**
+   ```go
+   // Go SDK
+   import "github.com/bradtumy/credential-service/sdk-go"
+   keypair, _ := sdk.GenerateDIDJWK("EdDSA")
+   fmt.Println("DID:", keypair.DID)
+   ```
+   ```javascript
+   // Node.js SDK
+   const { generateDIDJWK } = require('@credential-service/sdk-nodejs/keygen');
+   const keypair = await generateDIDJWK('EdDSA');
+   console.log('DID:', keypair.did);
+   ```
+   
+4. **Issue a credential via the issuer API (port 8080)**
 
    ```bash
    # Using did:jwk (DID with embedded public key) for the subject
@@ -80,7 +110,7 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
    # with the VC structure nested under the "vc" claim per W3C spec
    ```
 
-4. **Verify the credential through the verifier API (port 8081)**
+5. **Verify the credential through the verifier API (port 8081)**
    ```bash
    curl -s -X POST http://localhost:8081/v1/credentials/verify \
      -H "Content-Type: application/json" \
@@ -90,7 +120,7 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
    # { "active": true, "issuer": "did:jwk:...", "subject": "did:jwk:eyJrdHk..." }
    ```
 
-5. **Authorize through the gateway API and mint a synthetic JWT**
+6. **Authorize through the gateway API and mint a synthetic JWT**
    ```bash
    SYNTH=$(curl -s -X POST http://localhost:8081/v1/gateway/authorize \
      -H "Content-Type: application/json" \
@@ -103,7 +133,7 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
      }' | tee /dev/tty | jq -r '.synthetic_jwt')
    ```
 
-6. **Call the protected demo API using the synthetic JWT**
+7. **Call the protected demo API using the synthetic JWT**
    ```bash
    curl -s http://localhost:8082/orders \
      -H "Authorization: Bearer $SYNTH" | jq

@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration test-e2e lint sec ci
+.PHONY: test test-unit test-integration test-e2e lint sec ci keygen
 
 MODULE_PATH=./...
 
@@ -28,3 +28,8 @@ release:
 	@echo "Building release version $(VERSION)"
 	go build -ldflags "-X github.com/bradtumy/credential-service/internal/version.BuildVersion=$(VERSION)" ./cmd/issuer
 	go build -ldflags "-X github.com/bradtumy/credential-service/internal/version.BuildVersion=$(VERSION)" ./cmd/verifier
+
+keygen:
+	@echo "Building keygen CLI tool"
+	go build -o bin/keygen ./cmd/keygen
+	@echo "✓ Built: bin/keygen"
