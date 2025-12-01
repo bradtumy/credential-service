@@ -113,17 +113,31 @@ curl -s -X POST http://localhost:8081/v1/gateway/authorize \
 - **Sample API (`samples/s2s/api-service`, :8082):** Consumes synthetic JWTs on `/orders` to demonstrate legacy compatibility.
 - **Postgres (5432, Compose only):** Stores tenant data, policies, and trusted issuers when DB-backed stores are enabled.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for module layout, [TENANCY.md](TENANCY.md) for tenant scoping, [POLICY_ENGINE.md](POLICY_ENGINE.md) for authorization rules, and [GATEWAY_INTEGRATION.md](GATEWAY_INTEGRATION.md) for gateway usage.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs/TENANCY.md) for tenant scoping, [POLICY_ENGINE.md](docs/POLICY_ENGINE.md) for authorization rules, and [GATEWAY_INTEGRATION.md](docs/GATEWAY_INTEGRATION.md) for gateway usage.
 
-## APIs & Docs
-| Doc | What it covers |
-| --- | --- |
-| [api/openapi.yaml](api/openapi.yaml) | OpenAPI 3.1 for issuer, verifier, gateway, and health endpoints. |
-| [API_OVERVIEW.md](API_OVERVIEW.md) | Endpoint summaries, sample payloads, and the happy-path flow. |
-| [POLICY_ENGINE.md](POLICY_ENGINE.md) | Policy schema, evaluation order, and admin endpoints under `/v1/admin/policies`. |
-| [TENANCY.md](TENANCY.md) | Single vs. multi-tenant behavior and tenant resolution rules. |
-| [GATEWAY_INTEGRATION.md](GATEWAY_INTEGRATION.md) | How `/v1/gateway/authorize` plugs into reverse proxies and mints synthetic JWTs. |
-| [AGENTS.md](AGENTS.md) | Delegation and on-behalf-of semantics for agents. |
+## Documentation
+- [api/openapi.yaml](api/openapi.yaml) — OpenAPI 3.1 for issuer, verifier, gateway, and health endpoints.
+- [docs/API_OVERVIEW.md](docs/API_OVERVIEW.md) — Endpoint summaries, sample payloads, and the happy-path flow.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Module layout and component relationships.
+- [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) — Local development environment setup and tooling.
+- [docs/TESTING.md](docs/TESTING.md) — Testing strategy and how to run the suites.
+- [docs/SECURITY.md](docs/SECURITY.md) — Security model, threat considerations, and hardening tips.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — Planned features and upcoming work.
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) — Project change history.
+- [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — Contribution guidelines and development workflow.
+- [docs/CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md) — Expected standards for participation.
+- [docs/AGENTS.md](docs/AGENTS.md) — Delegation and on-behalf-of semantics for agents.
+- [docs/POLICY_ENGINE.md](docs/POLICY_ENGINE.md) — Policy schema, evaluation order, and admin endpoints under `/v1/admin/policies`.
+- [docs/TENANCY.md](docs/TENANCY.md) — Single vs. multi-tenant behavior and tenant resolution rules.
+- [docs/GATEWAY_INTEGRATION.md](docs/GATEWAY_INTEGRATION.md) — How `/v1/gateway/authorize` plugs into reverse proxies and mints synthetic JWTs.
+- [docs/GATEWAY_HARDENING.md](docs/GATEWAY_HARDENING.md) — Security considerations when deploying the gateway.
+- [docs/METRICS_IMPLEMENTATION.md](docs/METRICS_IMPLEMENTATION.md) — Prometheus metrics exposed by the services.
+- [docs/KMS_DEPLOYMENT.md](docs/KMS_DEPLOYMENT.md) — Guidance for deploying with KMS integrations.
+- [docs/PRODUCTION.md](docs/PRODUCTION.md) — Production readiness checklist and deployment notes.
+- [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) — Orientation for new developers and repo layout.
+- [docs/DEVELOPER_GUIDE_IMPROVEMENTS.md](docs/DEVELOPER_GUIDE_IMPROVEMENTS.md) — Proposed updates to the developer guide.
+- [docs/DID_RESOLVER_IMPROVEMENTS_SUMMARY.md](docs/DID_RESOLVER_IMPROVEMENTS_SUMMARY.md) — Summary of DID resolver improvements.
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — Threat modeling notes and mitigations.
 
 ## SDKs
 - **Go (`sdk/go`):**
@@ -152,7 +166,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for module layout, [TENANCY.md](TENANCY.m
 
 ## Roadmap / Current Status
 - **Implemented:** Issuance/delegation endpoints, SD-JWT issuance and verification alongside JWT VCs, policy-guarded TTL/scope/claim validation, audit trails with optional Postgres persistence, DID-based verification, gateway authorization with synthetic JWT minting, seeded trust registry for local runs, tenant-scoped policy engine with Postgres or in-memory stores, health/readiness probes, optional Prometheus metrics and Redis-backed caching/rate-limiting.
-- **Upcoming (see [ROADMAP.md](ROADMAP.md)):** Deeper KMS/Vault integrations and expanded integration/e2e testing.
+- **Upcoming (see [ROADMAP.md](docs/ROADMAP.md)):** Deeper KMS/Vault integrations and expanded integration/e2e testing.
 
 ## Contributing
 1. Create a feature branch: `git checkout -b feature/your-change`.
