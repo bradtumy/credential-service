@@ -58,6 +58,12 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
    ```
 
 3. **Issue a credential via the issuer API (port 8080)**
+   
+   The examples below use pre-generated `did:jwk` DIDs for simplicity. In production, subjects would generate their own key pairs and construct DIDs. For testing, you can:
+   - Use the example DIDs provided (they're valid `did:jwk` format with embedded Ed25519 public keys)
+   - Generate your own using tools like `step crypto` or the Go/Node SDKs
+   - Use `did:web` DIDs if you control a domain and can host DID documents
+
    ```bash
    # Using did:jwk (DID with embedded public key) for the subject
    VC=$(curl -s -X POST http://localhost:8080/v1/credentials/issue \
