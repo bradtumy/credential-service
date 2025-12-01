@@ -32,12 +32,10 @@ type KeygenResponse struct {
 // - Implementing proper key custody (vault, HSM, etc.)
 // - Rate limiting to prevent abuse
 func HandleKeygeneration(w http.ResponseWriter, r *http.Request) {
-	logger := logging.GetLogger()
-
 	// Parse request
 	var req KeygenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.Warn("Invalid keygen request", "error", err)
+		logging.Logger.Warn("Invalid keygen request", "error", err)
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
@@ -49,7 +47,7 @@ func HandleKeygeneration(w http.ResponseWriter, r *http.Request) {
 
 	// Validate algorithm
 	if req.Algorithm != "EdDSA" && req.Algorithm != "ES256" {
-		logger.Warn("Unsupported algorithm requested", "algorithm", req.Algorithm)
+		logging.Logger.Warn("Unsupported algorithm requested", "algorithm", req.Algorithm)
 		http.Error(w, `{"error":"unsupported algorithm, use EdDSA or ES256"}`, http.StatusBadRequest)
 		return
 	}
@@ -57,7 +55,7 @@ func HandleKeygeneration(w http.ResponseWriter, r *http.Request) {
 	// Generate DID and key pair
 	keypair, err := crypto.GenerateDIDJWK(req.Algorithm)
 	if err != nil {
-		logger.Error("Failed to generate DID", "error", err, "algorithm", req.Algorithm)
+		logging.Logger.Error("Failed to generate DID", "error", err, "algorithm", req.Algorithm)
 		http.Error(w, `{"error":"failed to generate DID"}`, http.StatusInternalServerError)
 		return
 	}
@@ -72,10 +70,10 @@ func HandleKeygeneration(w http.ResponseWriter, r *http.Request) {
 	// Include private key only if explicitly requested
 	if req.ReturnPrivateKey {
 		resp.PrivateKeyPEM = string(keypair.PrivateKeyPEM)
-		logger.Warn("Private key returned in API response - ensure TLS is enabled", "did", keypair.DID)
+		logging.Logger.Warn("Private key returned in API response - ensure TLS is enabled", "did", keypair.DID)
 	}
 
-	logger.Info("Generated new DID", 
+	logging.Logger.Info("Generated new DID", 
 		"did", keypair.DID, 
 		"algorithm", keypair.Algorithm,
 		"private_key_returned", req.ReturnPrivateKey)
@@ -83,6 +81,6 @@ func HandleKeygeneration(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		logger.Error("Failed to encode response", "error", err)
+		logging.Logger.Error("Failed to encode response", "error", err)
 	}
 }
