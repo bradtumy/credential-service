@@ -1,4 +1,4 @@
-# 🧭 Credential Service — Roadmap
+# Credential Service — Roadmap
 
 This document defines the **official roadmap** for the Credential Service project.  
 It is written to support **AI-assisted development (Codex/Copilot)** and enables developers to quickly understand what is implemented, what is in progress, and what comes next.
