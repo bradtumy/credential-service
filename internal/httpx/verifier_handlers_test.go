@@ -232,6 +232,26 @@ func decodeCredentialForHandlerTest(t *testing.T, token string) domain.Verifiabl
 		t.Fatalf("decode payload: %v", err)
 	}
 
+	// Try W3C VC-JWT format first
+	var vcjwt domain.VCJWTPayload
+	if err := json.Unmarshal(payload, &vcjwt); err == nil && vcjwt.VC.Context != nil {
+		// Extract VC and populate time fields from JWT claims
+		vc := vcjwt.VC
+		if vcjwt.IAT > 0 {
+			vc.IssuedAt = time.Unix(vcjwt.IAT, 0).UTC()
+		}
+		if vcjwt.EXP > 0 {
+			vc.ExpiresAt = time.Unix(vcjwt.EXP, 0).UTC()
+		}
+		vc.Subject = vcjwt.SUB
+		// Ensure Claims mirrors CredentialSubject for compatibility
+		if vc.Claims == nil && vc.CredentialSubject != nil {
+			vc.Claims = vc.CredentialSubject
+		}
+		return vc
+	}
+
+	// Fallback to legacy flat format
 	var vc domain.VerifiableCredential
 	if err := json.Unmarshal(payload, &vc); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)

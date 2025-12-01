@@ -35,17 +35,28 @@ func TestIssueBasicCredential(t *testing.T) {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
 
-	var vc VerifiableCredential
-	if err := json.Unmarshal(payloadBytes, &vc); err != nil {
+	// Decode W3C VC-JWT payload structure
+	var payload VCJWTPayload
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 		t.Fatalf("failed to unmarshal payload: %v", err)
 	}
 
-	if vc.ExpiresAt.Before(vc.IssuedAt) {
-		t.Fatalf("expected expires_at after issued_at")
+	// Verify JWT claims
+	if payload.ISS != "did:jwk:issuer" || payload.SUB != "did:jwk:subject" {
+		t.Fatalf("unexpected issuer or subject in JWT claims: iss=%s sub=%s", payload.ISS, payload.SUB)
 	}
 
-	if vc.Issuer != "did:jwk:issuer" || vc.Subject != "did:jwk:subject" {
-		t.Fatalf("unexpected issuer or subject: %+v", vc)
+	if payload.EXP <= payload.IAT {
+		t.Fatalf("expected exp after iat")
+	}
+
+	// Verify nested VC
+	if payload.VC.Issuer != "did:jwk:issuer" {
+		t.Fatalf("unexpected issuer in nested VC: %s", payload.VC.Issuer)
+	}
+
+	if payload.VC.CredentialSubject == nil {
+		t.Fatalf("expected credentialSubject to be populated")
 	}
 }
 

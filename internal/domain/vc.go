@@ -16,6 +16,21 @@ import (
 	"github.com/google/uuid"
 )
 
+// VCJWTPayload represents a W3C VC-JWT compliant payload structure.
+// Per the W3C spec, JWT claims are at the top level with the VC nested under 'vc' claim.
+type VCJWTPayload struct {
+	// JWT Standard Claims
+	ISS string `json:"iss"` // Issuer DID
+	SUB string `json:"sub"` // Subject DID
+	JTI string `json:"jti"` // JWT ID
+	IAT int64  `json:"iat"` // Issued At (Unix timestamp)
+	EXP int64  `json:"exp"` // Expires At (Unix timestamp)
+	NBF int64  `json:"nbf"` // Not Before (Unix timestamp)
+
+	// W3C VC-JWT Required: Credential nested under 'vc' claim
+	VC VerifiableCredential `json:"vc"`
+}
+
 // VerifiableCredential represents a W3C-compliant VC model used across all services.
 // This is the canonical model - all other services must use this exact structure.
 type VerifiableCredential struct {
@@ -194,9 +209,8 @@ func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, tt
 	expiresAt := issuedAt.Add(ttl)
 	credentialID := uuid.NewString()
 
-	// Create W3C-compliant VC with proper JWT claims
+	// Create W3C-compliant VC (without JWT claims - those go in wrapper)
 	vc := VerifiableCredential{
-		// W3C Fields
 		Context:           []string{"https://www.w3.org/2018/credentials/v1"},
 		Type:              []string{"VerifiableCredential"},
 		ID:                credentialID,
@@ -205,19 +219,22 @@ func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, tt
 		ExpirationDate:    expiresAt.Format(time.RFC3339),
 		CredentialSubject: claims,
 
-		// JWT Claims
-		JTI: credentialID,
-		ISS: issuerDID,
-		SUB: subjectDID,
-		IAT: issuedAt.Unix(),
-		EXP: expiresAt.Unix(),
-		NBF: issuedAt.Unix(),
-
-		// Backward compatibility (populate legacy fields)
+		// Backward compatibility (populate legacy fields for internal use)
 		Subject:   subjectDID,
 		Claims:    claims,
 		IssuedAt:  issuedAt,
 		ExpiresAt: expiresAt,
+	}
+
+	// Wrap VC in JWT payload per W3C VC-JWT specification
+	payload := VCJWTPayload{
+		ISS: issuerDID,
+		SUB: subjectDID,
+		JTI: credentialID,
+		IAT: issuedAt.Unix(),
+		EXP: expiresAt.Unix(),
+		NBF: issuedAt.Unix(),
+		VC:  vc,
 	}
 
 	header := map[string]string{
@@ -230,7 +247,7 @@ func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, tt
 		return "", fmt.Errorf("encode header: %w", err)
 	}
 
-	payloadSegment, err := encodeSegment(vc)
+	payloadSegment, err := encodeSegment(payload)
 	if err != nil {
 		return "", fmt.Errorf("encode payload: %w", err)
 	}
