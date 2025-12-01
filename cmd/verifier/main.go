@@ -173,7 +173,18 @@ func main() {
 	}
 
 	policyEngine := policy.NewEngine(policyStore)
-	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signer, issuerDID, decisionCache, limiter, gatewayMetrics, time.Now)
+	httpx.RegisterGatewayRoutes(mux, &httpx.GatewayConfig{
+		Resolver:        resolver,
+		Registry:        trustRegistry,
+		PolicyEngine:    policyEngine,
+		DefaultTenantID: cfg.DefaultTenantID,
+		SigningKey:      signer,
+		JWTIssuer:       issuerDID,
+		DecisionCache:   decisionCache,
+		Limiter:         limiter,
+		Metrics:         gatewayMetrics,
+		Now:             time.Now,
+	})
 	
 	// Register trust registry management routes (development mode - no auth)
 	httpx.RegisterTrustRegistryRoutes(mux, trustRegistry, cfg.DefaultTenantID)

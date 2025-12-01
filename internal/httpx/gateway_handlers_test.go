@@ -36,7 +36,7 @@ func TestGatewayAuthorizeAllow(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+	RegisterGatewayRoutes(mux, &GatewayConfig{Resolver: resolver, Registry: registry, DefaultTenantID: "tenant", SigningKey: priv, JWTIssuer: issuerDID, Now: time.Now})
 
 	payload := GatewayAuthorizeRequest{Credential: token, WantSyntheticJWT: true, Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
@@ -83,7 +83,18 @@ func TestGatewayAuthorizeAgentContext(t *testing.T) {
 	childToken, _ := domain.IssueBasicCredential(issuerDID, "did:example:agent", priv, 2*time.Minute, map[string]interface{}{"scope": []string{"read"}})
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+	RegisterGatewayRoutes(mux, &GatewayConfig{
+		Resolver:        resolver,
+		Registry:        registry,
+		PolicyEngine:    nil,
+		DefaultTenantID: "tenant",
+		SigningKey:      priv,
+		JWTIssuer:       issuerDID,
+		DecisionCache:   nil,
+		Limiter:         nil,
+		Metrics:         nil,
+		Now:             time.Now,
+	})
 
 	payload := GatewayAuthorizeRequest{Credentials: []string{parentToken, childToken}, WantSyntheticJWT: true, Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
@@ -130,8 +141,15 @@ func TestGatewayAuthorizeDenyExpired(t *testing.T) {
 	cred := decodeCredentialForHandlerTest(t, token)
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, nil, nil, nil, func() time.Time {
-		return cred.ExpiresAt.Add(time.Second)
+	RegisterGatewayRoutes(mux, &GatewayConfig{
+		Resolver:        resolver,
+		Registry:        registry,
+		DefaultTenantID: "tenant",
+		SigningKey:      priv,
+		JWTIssuer:       issuerDID,
+		Now: func() time.Time {
+			return cred.ExpiresAt.Add(time.Second)
+		},
 	})
 
 	payload := GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"}
@@ -169,7 +187,7 @@ func TestGatewayAuthorizeUntrustedIssuer(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+	RegisterGatewayRoutes(mux, &GatewayConfig{Resolver: resolver, Registry: registry, DefaultTenantID: "tenant", SigningKey: priv, JWTIssuer: issuerDID, Now: time.Now})
 
 	payload := GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
@@ -192,7 +210,7 @@ func TestGatewayAuthorizeUntrustedIssuer(t *testing.T) {
 
 func TestGatewayAuthorizeMissingCredential(t *testing.T) {
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", nil, nil, nil, time.Now)
+	RegisterGatewayRoutes(mux, &GatewayConfig{DefaultTenantID: "tenant", Now: time.Now})
 
 	payload := GatewayAuthorizeRequest{Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
@@ -209,7 +227,7 @@ func TestGatewayAuthorizeMissingCredential(t *testing.T) {
 
 func TestGatewayAuthorizeMissingResource(t *testing.T) {
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", nil, nil, nil, time.Now)
+	RegisterGatewayRoutes(mux, &GatewayConfig{DefaultTenantID: "tenant", Now: time.Now})
 
 	payload := GatewayAuthorizeRequest{Credential: "token", Action: "read"}
 	body, _ := json.Marshal(payload)
@@ -227,7 +245,7 @@ func TestGatewayAuthorizeMissingResource(t *testing.T) {
 func TestGatewayAuthorizeRateLimited(t *testing.T) {
 	limiter := &stubLimiter{allow: false}
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", nil, limiter, nil, time.Now)
+	RegisterGatewayRoutes(mux, &GatewayConfig{DefaultTenantID: "tenant", Limiter: limiter, Now: time.Now})
 
 	payload := GatewayAuthorizeRequest{Credential: "token", Resource: "orders", Action: "read"}
 	body, _ := json.Marshal(payload)
@@ -245,7 +263,7 @@ func TestGatewayAuthorizeRateLimited(t *testing.T) {
 func TestGatewayAuthorizeCacheHitSkipsVerification(t *testing.T) {
         cache := &recordingCache{}
         mux := http.NewServeMux()
-        RegisterGatewayRoutes(mux, nil, nil, nil, "tenant", nil, "", cache, nil, nil, time.Now)
+        RegisterGatewayRoutes(mux, &GatewayConfig{DefaultTenantID: "tenant", DecisionCache: cache, Now: time.Now})
 
 	// Prime cache with allowed decision.
 	cached := GatewayAuthorizeResponse{Allowed: true, Subject: "did:example:cached", TenantID: "tenant", APIVersion: version.APIVersion}
@@ -285,7 +303,7 @@ func TestGatewayAuthorizeCachesDecision(t *testing.T) {
 
 	cache := &recordingCache{}
 	mux := http.NewServeMux()
-	RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", priv, issuerDID, cache, nil, nil, time.Now)
+	RegisterGatewayRoutes(mux, &GatewayConfig{Resolver: resolver, Registry: registry, DefaultTenantID: "tenant", SigningKey: priv, JWTIssuer: issuerDID, DecisionCache: cache, Now: time.Now})
 
 	body, _ := json.Marshal(GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"})
 
@@ -325,7 +343,7 @@ func TestGatewayAuthorizePolicyDeny(t *testing.T) {
         engine := policy.NewEngine(store)
 
         mux := http.NewServeMux()
-        RegisterGatewayRoutes(mux, resolver, registry, engine, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+        RegisterGatewayRoutes(mux, &GatewayConfig{Resolver: resolver, Registry: registry, PolicyEngine: engine, DefaultTenantID: "tenant", SigningKey: priv, JWTIssuer: issuerDID, Now: time.Now})
 
         body, _ := json.Marshal(GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"})
         rr := httptest.NewRecorder()
@@ -357,7 +375,7 @@ func TestGatewayAuthorizePolicyAllow(t *testing.T) {
         engine := policy.NewEngine(store)
 
         mux := http.NewServeMux()
-        RegisterGatewayRoutes(mux, resolver, registry, engine, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+        RegisterGatewayRoutes(mux, &GatewayConfig{Resolver: resolver, Registry: registry, PolicyEngine: engine, DefaultTenantID: "tenant", SigningKey: priv, JWTIssuer: issuerDID, Now: time.Now})
 
         body, _ := json.Marshal(GatewayAuthorizeRequest{Credential: token, Resource: "orders/123", Action: "read"})
         rr := httptest.NewRecorder()
@@ -387,7 +405,7 @@ func TestGatewayAuthorizePolicyDefaultDeny(t *testing.T) {
         engine := policy.NewEngine(policy.NewMemoryStore())
 
         mux := http.NewServeMux()
-        RegisterGatewayRoutes(mux, resolver, registry, engine, "tenant", priv, issuerDID, nil, nil, nil, time.Now)
+        RegisterGatewayRoutes(mux, &GatewayConfig{Resolver: resolver, Registry: registry, PolicyEngine: engine, DefaultTenantID: "tenant", SigningKey: priv, JWTIssuer: issuerDID, Now: time.Now})
 
         body, _ := json.Marshal(GatewayAuthorizeRequest{Credential: token, Resource: "orders", Action: "read"})
         rr := httptest.NewRecorder()

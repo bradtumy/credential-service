@@ -2,6 +2,33 @@
 
 Issue, delegate, verify, and authorize W3C Verifiable Credentials (VCs) with DID-backed keys and a gateway that can mint synthetic JWTs for legacy APIs.
 
+## Architecture
+
+```
+┌─────────────┐         ┌──────────────┐         ┌─────────────┐
+│   Issuer    │         │  Verifier    │         │   Gateway   │
+│   :8080     │────────▶│   :8081      │◀────────│  (AuthZ)    │
+│             │  Trust  │              │  Verify │             │
+│ - Issue VCs │         │ - Verify VCs │         │ - Rate Limit│
+│ - DID Mgmt  │         │ - Trust Reg  │         │ - Caching   │
+│ - Key Mgmt  │         │ - Policy Eng │         │ - Decisions │
+└─────────────┘         └──────────────┘         └─────────────┘
+       │                        │                        │
+       │                        │                        │
+       └────────────────────────┴────────────────────────┘
+                                │
+                          ┌─────▼─────┐         ┌──────────┐
+                          │ Postgres  │         │  Redis   │
+                          │   :5432   │         │  :6379   │
+                          │           │         │          │
+                          │ - Tenants │         │ - Cache  │
+                          │ - Policies│         │ - Limits │
+                          │ - Trust   │         │          │
+                          └───────────┘         └──────────┘
+```
+
+**Flow**: Issuer generates credentials with `did:jwk` identifiers → Verifier checks trust registry + resolves DIDs + evaluates policies → Gateway caches decisions + enforces rate limits
+
 ## What this project is
 A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation chains, enforcing tenant-scoped authorization policies, and translating trusted credentials into standard `Bearer` tokens for downstream services.
 
@@ -41,7 +68,52 @@ A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation 
 - **Policy Evaluation:** Requests are authorized against tenant policies using action/resource matching plus optional scope/claim conditions.
 
 ## Quick Start
-Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so you can copy/paste the `curl` examples or port the payloads into your own client.
+
+Prereqs: Docker and Docker Compose v2. Choose your path:
+
+### 🚀 Fast Track (3 minutes)
+
+Get running with minimal setup:
+
+```bash
+# 1. Start services
+git clone https://github.com/bradtumy/credential-service.git
+cd credential-service
+docker compose up --build -d
+
+# 2. Generate a test DID
+make keygen
+ALICE_DID=$(./bin/keygen -did-only)
+
+# 3. Issue a credential
+VC=$(curl -s -X POST http://localhost:8080/v1/credentials/issue \
+  -H "Content-Type: application/json" \
+  -d '{"subject_did":"'$ALICE_DID'","ttl_seconds":600,"claims":{"role":"tester"}}' \
+  | jq -r .credential)
+
+# 4. Add issuer to trust registry
+ISSUER_DID=$(docker logs credential-service-issuer-1 2>&1 | grep "issuer_did" | tail -1 | sed 's/.*issuer_did=\([^ ]*\).*/\1/')
+curl -s -X POST http://localhost:8081/v1/trust/issuers \
+  -H "Content-Type: application/json" \
+  -d '{"issuer_did":"'$ISSUER_DID'"}'
+
+# 5. Verify and authorize
+curl -s -X POST http://localhost:8081/v1/gateway/authorize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "credential": "'$VC'",
+    "expected_audience": "sample-api",
+    "resource": "orders",
+    "action": "read",
+    "want_synthetic_jwt": true
+  }' | jq
+```
+
+✅ **Done!** You should see `"allowed": true` with a synthetic JWT. Skip to [What's Next](#whats-next) or continue for production setup.
+
+### 🏗️ Production Setup (15 minutes)
+
+Full walkthrough with detailed explanations:
 
 1. **Clone & start the stack**
    ```bash
@@ -161,6 +233,37 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
 
 The verifier ships with a default policy that allows `read` on `orders` for any subject. For production use, you'll want to add trusted issuers to the trust registry via the admin API (see [GATEWAY_INTEGRATION.md](docs/GATEWAY_INTEGRATION.md)).
 
+### Troubleshooting
+
+**"untrusted_issuer" error:**
+- Ensure you completed step 4 (adding issuer to trust registry)
+- Check that issuer and verifier are both running: `docker ps`
+- Verify issuer DID: `docker logs credential-service-issuer-1 | grep issuer_did`
+- The trust registry is in-memory by default and resets on restart
+
+**"unexpected audience" error:**
+- Ensure the `aud` claim in your credential matches `expected_audience` in verification
+- Check credential payload: `echo $VC | cut -d'.' -f2 | base64 -d`
+
+**Services won't start:**
+```bash
+# Check for port conflicts
+lsof -i :8080 -i :8081 -i :8082
+
+# View service logs
+docker compose logs issuer
+docker compose logs verifier
+
+# Rebuild from scratch
+docker compose down -v
+docker compose up --build
+```
+
+**Slow verification performance:**
+- Enable Redis caching: Set `VERIFIER_GATEWAY_CACHE=true` and `REDIS_ADDR=redis:6379`
+- Check metrics: `curl http://localhost:8081/metrics`
+- Review audit logs for bottlenecks
+
 ### Delegation in one command (optional)
 Mint a constrained agent credential and authorize it:
 ```bash
@@ -245,11 +348,77 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs
 - **Implemented:** Issuance/delegation endpoints, SD-JWT issuance and verification alongside JWT VCs, policy-guarded TTL/scope/claim validation, audit trails with optional Postgres persistence, DID-based verification, gateway authorization with synthetic JWT minting, seeded trust registry for local runs, tenant-scoped policy engine with Postgres or in-memory stores, health/readiness probes, optional Prometheus metrics and Redis-backed caching/rate-limiting.
 - **Upcoming (see [ROADMAP.md](docs/ROADMAP.md)):** Deeper KMS/Vault integrations and expanded integration/e2e testing.
 
+## Local Development
+
+### Fast Iteration Workflow
+```bash
+# Run tests with coverage
+make test-coverage
+
+# Run only specific package tests
+go test ./internal/domain/... -v
+
+# Watch mode for development (requires entr or similar)
+find . -name '*.go' | entr -r go test ./internal/domain/...
+
+# Build all services
+make build-all
+
+# Run linter
+make lint
+
+# Security scan
+make sec
+```
+
+### Debugging Tips
+```bash
+# Enable debug logging
+export ISSUER_LOG_LEVEL=debug
+export VERIFIER_LOG_LEVEL=debug
+
+# Run services locally (without Docker)
+go run ./cmd/issuer &
+go run ./cmd/verifier &
+
+# Check service health
+curl http://localhost:8080/healthz
+curl http://localhost:8081/readyz
+```
+
+### Common Development Tasks
+
+**Generate a test DID quickly:**
+```bash
+make keygen && ./bin/keygen -did-only
+```
+
+**Test credential issuance:**
+```bash
+# Using the test script
+./scripts/test-issue.sh
+
+# Or manually
+ALICE_DID=$(./bin/keygen -did-only)
+curl -X POST http://localhost:8080/v1/credentials/issue \
+  -d '{"subject_did":"'$ALICE_DID'","ttl_seconds":600,"claims":{"test":true}}'
+```
+
+**Database reset (for testing):**
+```bash
+docker compose down -v && docker compose up -d postgres
+# Wait for DB to be ready
+sleep 3
+# Run migrations manually if needed
+```
+
 ## Contributing
 1. Create a feature branch: `git checkout -b feature/your-change`.
 2. Make changes and add tests.
-3. Run the test suite: `go test ./...` (or `make test` for unit coverage on core services).
-4. Commit and open a Pull Request.
+3. Run the test suite: `make test` (or `go test ./...` for verbose output).
+4. Run linter and security checks: `make lint sec`
+5. Test the Quick Start guide end-to-end to ensure your changes work.
+6. Commit and open a Pull Request.
 
 ## License
 Apache License 2.0. See [LICENSE](LICENSE) for details.
