@@ -17,7 +17,7 @@ func TestIssuerIntegration(t *testing.T) {
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.LoadIssuerConfigFromEnv()
 	mux := http.NewServeMux()
-	httpx.RegisterIssuerRoutes(mux, store, cfg)
+	httpx.RegisterIssuerRoutes(mux, store, cfg, nil)
 
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)

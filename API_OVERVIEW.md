@@ -20,9 +20,15 @@ Downstream API <- Synthetic JWT from Gateway
 
 ## Payload Examples
 - Issue: `{ "subject_did": "did:example:alice", "ttl_seconds": 600, "claims": {"aud": "orders-api"} }`
+- Issue SD-JWT: `{ "subject_did": "did:example:alice", "ttl_seconds": 600, "claims": {"email": "alice@example.com"}, "format": "sd-jwt" }` (response includes `credential` plus `disclosures`)
 - Delegate: `{ "parent_credential": "<jwt>", "delegate_did": "did:example:agent", "scope": ["read"], "ttl_seconds": 300 }`
 - Verify: `{ "credentials": ["<parent>", "<child>"], "expected_audience": "orders-api" }`
+- Verify SD-JWT: `{ "credential": "<sd-jwt>", "disclosures": ["<disc1>", "<disc2>"], "format": "sd-jwt", "expected_audience": "orders-api" }`
 - Gateway Authorize: `{ "credentials": ["<parent>", "<child>"], "expected_audience": "orders-api", "want_synthetic_jwt": true }`
 
 ## Contract Reference
 The structured schema is published at [api/openapi.yaml](api/openapi.yaml). Each successful response includes `api_version` to document the contract used.
+
+## Policies and auditing
+- Issuance requests are checked against environment-driven policy (`ISSUER_POLICY_MAX_TTL_SECONDS`, `ISSUER_POLICY_ALLOWED_SCOPES`, `ISSUER_POLICY_REQUIRED_CLAIMS`) before minting either JWT or SD-JWT credentials.
+- When `ISSUER_AUDIT_DB_DSN` is configured, credential issuance/delegation events are written to the `audit_events` Postgres table alongside structured logs for traceability.

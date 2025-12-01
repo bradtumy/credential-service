@@ -139,11 +139,21 @@ components:
           type: integer
         claims:
           type: object
+        format:
+          type: string
+          description: Credential format, defaults to jwt-vc, set to sd-jwt for selective disclosure
       required: [subject_did, ttl_seconds]
     IssueResponse:
       type: object
       properties:
         credential:
+          type: string
+        disclosures:
+          type: array
+          description: Only returned for SD-JWT issuance
+          items:
+            type: string
+        format:
           type: string
         api_version:
           type: string
@@ -180,6 +190,13 @@ components:
           items:
             type: string
         expected_audience:
+          type: string
+        disclosures:
+          type: array
+          description: SD-JWT disclosures to be verified
+          items:
+            type: string
+        format:
           type: string
     VerifyResponse:
       type: object

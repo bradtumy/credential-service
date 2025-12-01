@@ -21,7 +21,7 @@ func TestSmokeFlow(t *testing.T) {
 	issuerCfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	issuerStore := keystore.NewMemoryKeyStore()
 	issuerMux := http.NewServeMux()
-	httpx.RegisterIssuerRoutes(issuerMux, issuerStore, issuerCfg)
+	httpx.RegisterIssuerRoutes(issuerMux, issuerStore, issuerCfg, nil)
 	issuerServer := httptest.NewServer(issuerMux)
 	t.Cleanup(issuerServer.Close)
 

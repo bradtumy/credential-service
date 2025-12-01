@@ -36,7 +36,7 @@ func main() {
 
 	// Wire routes
 	mux := http.NewServeMux()
-	httpx.RegisterIssuerRoutes(mux, store, cfg)
+	httpx.RegisterIssuerRoutes(mux, store, cfg, nil)
 	httpx.RegisterHealthRoutes(mux, nil)
 
 	// Apply comprehensive middleware chain (correlation IDs, audit, security headers)

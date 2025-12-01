@@ -80,7 +80,7 @@ func TestMultiTenantEndToEnd(t *testing.T) {
 	policyEngine := &recordingEngine{allow: true}
 
 	mux := http.NewServeMux()
-	httpx.RegisterIssuerRoutes(mux, keyStore, cfg)
+	httpx.RegisterIssuerRoutes(mux, keyStore, cfg, nil)
 	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
 	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signingKeyA, issuerDIDs[cfg.DefaultTenantID], nil, nil, nil, time.Now)
 

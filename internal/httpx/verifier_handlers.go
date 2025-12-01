@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/bradtumy/credential-service/internal/domain"
@@ -19,6 +20,8 @@ type VerifyRequest struct {
 	Credential       string   `json:"credential"`
 	Credentials      []string `json:"credentials"`
 	ExpectedAudience string   `json:"expected_audience"`
+	Disclosures      []string `json:"disclosures"`
+	Format           string   `json:"format"`
 }
 
 // VerifyResponse represents the verifier response payload.
@@ -59,6 +62,18 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			tokens = []string{req.Credential}
 		}
 
+		if req.Format == "sd-jwt" || len(req.Disclosures) > 0 {
+			if req.Credential == "" {
+				WriteAPIError(w, http.StatusBadRequest, "invalid_request", "credential is required for sd-jwt verification")
+				return
+			}
+			combined := req.Credential
+			if len(req.Disclosures) > 0 {
+				combined = combined + "~" + strings.Join(req.Disclosures, "~")
+			}
+			tokens = []string{combined}
+		}
+
 		if len(tokens) == 0 {
 			WriteAPIError(w, http.StatusBadRequest, "invalid_request", "credential is required")
 			return
@@ -95,10 +110,13 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			case errors.Is(err, domain.ErrExpiredCredential), errors.Is(err, domain.ErrInvalidSignature), errors.Is(err, domain.ErrUnexpectedAudience), errors.Is(err, domain.ErrIssuedInFuture):
 				reason = "invalid_credential"
 				WriteAPIError(w, http.StatusUnauthorized, reason, err.Error())
+			case errors.Is(err, domain.ErrInvalidDisclosure), errors.Is(err, domain.ErrMissingDisclosure):
+				reason = "invalid_disclosure"
+				WriteAPIError(w, http.StatusBadRequest, reason, err.Error())
 			default:
 				WriteAPIError(w, http.StatusBadRequest, reason, err.Error())
 			}
-			
+
 			// Log failed verification attempt
 			if len(tokens) > 0 {
 				logging.LogAuditEvent(r.Context(), logging.AuditEvent{
@@ -107,12 +125,12 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 					Reason:    reason,
 					Metadata: map[string]interface{}{
 						"expected_audience": req.ExpectedAudience,
-						"credential_count": len(tokens),
-						"error": err.Error(),
+						"credential_count":  len(tokens),
+						"error":             err.Error(),
 					},
 				})
 			}
-			
+
 			verifierMetrics.IncVerificationFailure(reason)
 			return
 		}
@@ -130,11 +148,12 @@ func RegisterVerifierRoutes(mux *http.ServeMux, resolver func(string) (crypto.Pu
 			IssuerDID:  leaf.Issuer,
 			Outcome:    "success",
 			Metadata: map[string]interface{}{
-				"expected_audience":     req.ExpectedAudience,
-				"credential_count":     len(tokens),
-				"delegation_depth":     chainResult.DelegationDepth,
-				"acting_on_behalf_of":  actingOnBehalfOf,
+				"expected_audience":   req.ExpectedAudience,
+				"credential_count":    len(tokens),
+				"delegation_depth":    chainResult.DelegationDepth,
+				"acting_on_behalf_of": actingOnBehalfOf,
 				"expires_at":          leaf.ExpiresAt.Format(time.RFC3339),
+				"format":              leaf.Format,
 			},
 		})
 

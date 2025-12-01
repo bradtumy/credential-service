@@ -23,6 +23,8 @@ var (
 	ErrDelegationScope    = errors.New("delegated scope must be subset of parent")
 	ErrDelegationTTL      = errors.New("delegated credential expires after parent")
 	ErrDelegationDepth    = errors.New("delegation depth exceeded")
+	ErrMissingDisclosure  = errors.New("disclosure missing for SD-JWT digest")
+	ErrInvalidDisclosure  = errors.New("invalid SD-JWT disclosure")
 )
 
 // VerificationResult captures the verified credential payload.
@@ -65,12 +67,13 @@ func VerifyCredentialChain(tokens []string, deps VerifierDependencies, opts Veri
 
 	credentials := make([]VerifiableCredential, 0, len(tokens))
 	for idx, token := range tokens {
+		baseToken, disclosures := parseSDJWTPayload(token)
 		expectedAudience := ""
 		if idx == len(tokens)-1 {
 			expectedAudience = opts.ExpectedAudience
 		}
 
-		credential, err := verifySingleCredential(token, deps, expectedAudience, now)
+		credential, err := verifySingleCredential(baseToken, disclosures, deps, expectedAudience, now)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +123,7 @@ func VerifyCredential(token string, deps VerifierDependencies, expectedAudience 
 	return &VerificationResult{Credential: res.Credentials[0]}, nil
 }
 
-func verifySingleCredential(token string, deps VerifierDependencies, expectedAudience string, now time.Time) (VerifiableCredential, error) {
+func verifySingleCredential(token string, disclosures []string, deps VerifierDependencies, expectedAudience string, now time.Time) (VerifiableCredential, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return VerifiableCredential{}, ErrInvalidToken
@@ -165,6 +168,12 @@ func verifySingleCredential(token string, deps VerifierDependencies, expectedAud
 		return VerifiableCredential{}, ErrIssuedInFuture
 	}
 
+	if len(credential.SDDigests) > 0 {
+		if err := applyDisclosures(&credential, disclosures); err != nil {
+			return VerifiableCredential{}, err
+		}
+	}
+
 	if expectedAudience != "" {
 		aud, _ := credential.Claims["aud"].(string)
 		if aud != expectedAudience {
@@ -173,6 +182,84 @@ func verifySingleCredential(token string, deps VerifierDependencies, expectedAud
 	}
 
 	return credential, nil
+}
+
+func parseSDJWTPayload(token string) (string, []string) {
+	parts := strings.Split(token, "~")
+	if len(parts) == 0 {
+		return token, nil
+	}
+	base := parts[0]
+	if len(parts) == 1 {
+		return base, nil
+	}
+	return base, parts[1:]
+}
+
+func applyDisclosures(vc *VerifiableCredential, disclosures []string) error {
+	if len(vc.SDDigests) == 0 {
+		return nil
+	}
+	digestSet := map[string]struct{}{}
+	for _, d := range vc.SDDigests {
+		digestSet[d] = struct{}{}
+	}
+
+	resolvedClaims := map[string]interface{}{}
+	for _, disclosure := range disclosures {
+		raw, err := base64.RawURLEncoding.DecodeString(disclosure)
+		if err != nil {
+			return ErrInvalidToken
+		}
+		var arr []interface{}
+		if err := json.Unmarshal(raw, &arr); err != nil {
+			return ErrInvalidToken
+		}
+		if len(arr) != 3 {
+			return ErrInvalidToken
+		}
+		salt, _ := arr[0].(string)
+		key, _ := arr[1].(string)
+		if salt == "" || key == "" {
+			return ErrInvalidToken
+		}
+		reconstructed, err := json.Marshal(arr)
+		if err != nil {
+			return ErrInvalidToken
+		}
+
+		digest := computeDisclosureDigest(reconstructed)
+		if _, ok := digestSet[digest]; !ok {
+			return ErrInvalidDisclosure
+		}
+		resolvedClaims[key] = arr[2]
+	}
+
+	for digest := range digestSet {
+		match := false
+		for _, disclosure := range disclosures {
+			raw, err := base64.RawURLEncoding.DecodeString(disclosure)
+			if err != nil {
+				return ErrInvalidDisclosure
+			}
+			if computeDisclosureDigest(raw) == digest {
+				match = true
+				break
+			}
+		}
+		if !match {
+			return ErrMissingDisclosure
+		}
+	}
+
+	if vc.Claims == nil {
+		vc.Claims = map[string]interface{}{}
+	}
+	for k, v := range resolvedClaims {
+		vc.Claims[k] = v
+	}
+	vc.SDDigests = nil
+	return nil
 }
 
 func ScopeFromClaims(claims map[string]interface{}) []string {
