@@ -119,6 +119,62 @@ A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation 
 - **Tenancy:** `X-Tenant-ID` header (or the default tenant in single-tenant mode) scopes trust registries and policies; Docker Compose runs in single-tenant mode by default.
 - **Policy Evaluation:** Requests are authorized against tenant policies using action/resource matching plus optional scope/claim conditions.
 
+## Standards Alignment: OAuth 2.0 Token Exchange (RFC 8693)
+
+This project DOES NOT implement a full OAuth 2.0 / OpenID Connect Authorization Server. It focuses narrowly on Verifiable Credential issuance, verification, delegation, and translating trusted credentials into short‑lived bearer tokens for legacy APIs.
+
+We considered adding a `/v1/oauth/token` endpoint using the RFC 8693 Token Exchange grant, but chose to defer it to avoid the ecosystem expectations that come with an OAuth surface (discovery documents, refresh tokens, consent flows, introspection, revocation, dynamic client registration, etc.). Instead, we document the conceptual mapping so integrators can build adapters if needed.
+
+### Conceptual Mapping
+| RFC 8693 Concept            | Current Implementation (/v1/gateway/authorize)                         |
+|-----------------------------|-------------------------------------------------------------------------|
+| `subject_token`             | Primary credential (root or delegated VC JWT)                          |
+| `subject_token_type`        | Implicit: W3C VC-JWT (`typ: "vc+jwt"`)                                 |
+| `actor_token` (optional)    | Additional delegated credential(s) passed via `credentials` array       |
+| `requested_token_type`      | Synthetic access JWT (short‑lived bearer token)                         |
+| `audience`                  | `expected_audience` field (validated against credential claims/policy)  |
+| `scope`                     | Derived from credential claims + policy evaluation                      |
+| Response `access_token`     | `synthetic_jwt` (when `want_synthetic_jwt=true`)                        |
+| Response token metadata     | Returned as decision object (issuer, subject, allowed, expiry)          |
+| Error codes                 | Service-specific errors (e.g., `untrusted_issuer`) not yet normalized   |
+
+### Why Defer a Formal Token Exchange Endpoint?
+- Avoids accidental scope creep into full OAuth/OIDC feature sets.
+- Keeps maintenance surface small (no refresh, revocation, introspection flows).
+- Preserves focus on VC, DID resolution, and delegation policy logic.
+- Reduces premature standardization before concrete integrator demand.
+
+### Out of Scope (Explicitly Not Implemented)
+- `/.well-known/openid-configuration` discovery
+- Refresh tokens / offline access
+- Token revocation / introspection endpoints
+- User consent / authorization code flows
+- Dynamic client registration
+- OIDC ID Tokens / user claims aggregation
+
+### Future Minimal Endpoint (Planned Criteria)
+We will only add a constrained `/v1/oauth/token` (RFC 8693 grant) if:
+1. Multiple integrators (≥2) require a standards wire format for automation.
+2. Security review requests normative error codes and grant typing.
+3. A gateway/product integration mandates formal `subject_token` / `actor_token` fields.
+
+If implemented, it would:
+- Support ONLY `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`.
+- Accept form-encoded `subject_token`, optional `actor_token`, `requested_token_type`.
+- Reject all unknown parameters with `invalid_request`.
+- Return: `access_token`, `issued_token_type`, `token_type="Bearer"`, `expires_in`.
+- Map internal errors to a small set (`invalid_token`, `access_denied`).
+- Omit refresh, introspection, revocation, discovery.
+
+### Recommended Integration Pattern Today
+If you need full OAuth/OIDC: use an existing AS (e.g., Keycloak, Ory Hydra, Auth0) and implement a custom grant that:
+1. Accepts a VC JWT (and optionally delegated chain).
+2. Calls this service’s verification + policy APIs.
+3. Mints an access token inside the OAuth server’s lifecycle.
+
+### Summary
+You can treat `/v1/gateway/authorize` as a logical token exchange without assuming broader OAuth semantics. This documented mapping enables adapter layers now, while leaving a minimal standards endpoint as a future, gated enhancement.
+
 ## Quick Start
 
 Prereqs: Docker and Docker Compose v2. Choose your path:
