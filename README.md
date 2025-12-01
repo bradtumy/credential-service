@@ -1,673 +1,149 @@
 # Credential Service
 
-## Audit Logging Demo
-
-## Health and Readiness
-
-- Endpoints:
-  - `GET /health`: lightweight liveness check (returns `200 ok`).
-  - `GET /ready`: readiness check (service-dependent; e.g., DID service pings DB).
-- Services:
-  - Holder: `/health`
-  - DID: `/health`, `/ready` (DB ping)
-  - Resolver: `/health`, `/ready`
-  - Presentation: `/health`, `/ready`
-  - Schema: `/health`, `/ready`
-- Middleware: All services should use `httpx.StandardMiddlewareChain()` for correlation IDs, audit logging, and security headers.
-
-## Trust Registry Enforcement
-
-- Verification checks issuer trust per tenant before resolving keys.
-- Behavior:
-  - Untrusted issuer → `403` with `reason=untrusted_issuer`; audit `security.data_access` failure.
-  - Trusted issuer → continues with signature and TTL validation.
-- Code reference: `internal/httpx/verifier_handlers.go` (uses tenant context + `domain.TrustRegistry`).
-
-- Purpose: Demonstrates correlation IDs and structured audit/security events across HTTP endpoints.
-- Run:
-  - `go run ./examples/audit-logging-demo/main.go`
-- What it does:
-  - Starts a local server on `:8086` with standard middleware (correlation IDs, audit, security headers).
-  - Calls `/health`, issues a credential via `/v1/credentials/issue`, sends an invalid request, and emits manual admin/security events.
-  - Prints JSON audit events including `event_type`, `correlation_id`, `tenant_id`, and outcome.
-- Headers used:
-  - `X-Correlation-ID`: propagates request tracing.
-  - `X-Tenant-ID`: associates events with a tenant.
-- Notes:
-  - The demo is self-contained; no external services required.
-  - Logs default to JSON at `info` level; configure via `internal/logging.Init()` in services.
-
-A robust microservice designed for creating, managing, and verifying **W3C-compliant Verifiable Credentials (VCs)**. This service allows organizations to issue credentials, link them to **Decentralized Identifiers (DIDs)**, and enable secure, privacy-preserving verification across multiple platforms. The platform now ships with agent-mode helpers so AI agents can safely act on behalf of humans with scoped, short-lived credentials.
-
-## 🚀 Quick Start
-
-1. **Start the services**
-
-   ```bash
-   docker compose up --build
-   ```
-
-2. **Bootstrap admin access** ⚠️ **Required for admin operations**
-
-   ```bash
-   # Create root admin VC (6-month validity)
-   # WARNING: Bootstrap endpoint has no authentication - disable in production
-   curl -X POST http://localhost:8080/v1/setup/bootstrap \
-     -H "Content-Type: application/json" \
-     -d '{
-       "issuer_did": "did:example:admin",
-       "issuer_name": "System Administrator"
-     }'
-   
-   # Save the returned admin_vc token for admin operations
-   ```
-
-3. **Issue a user credential**
-
-   ```bash
-   curl -X POST http://localhost:8080/v1/credentials/issue \
-     -H "Content-Type: application/json" \
-     -d '{
-       "subject_did": "did:jwk:user-123",
-       "ttl_seconds": 3600,
-       "claims": {"scope": ["orders:read"]}
-     }'
-   ```
-
-4. **Verify the credential**
-
-   ```bash
-   curl -X POST http://localhost:8081/v1/credentials/verify \
-     -H "Content-Type: application/json" \
-     -d '{"credential": "<jwt-from-step-3>"}'
-   ```
-
-5. **Test the full workflow**
-
-   ```bash
-   go run ./examples/go-basic
-   ```
-
-### Agent mode (30-second example)
-
-Use the Go helper to mint a short-lived delegated credential for an agent and call a service on behalf of a human:
-
-```bash
-go run ./examples/agent-basic
-```
-
-## 🔐 Admin Authentication
-
-**🚨 Important**: Admin APIs now require authentication with admin VCs. You must bootstrap the system first.
-
-### **Bootstrap Admin System**
-```bash
-# 1. Bootstrap creates issuer + root admin VC (one-time setup)
-curl -X POST http://localhost:8080/v1/setup/bootstrap \
-  -H "Content-Type: application/json" \
-  -d '{"root_admin_did": "did:jwk:your-admin-identity"}'
-
-# 2. Save the returned root_admin_credential for admin operations
-export ADMIN_VC="eyJhbGciOiJFZERTQSI..."
-```
-
-### **Admin Operations Require Authentication**
-```bash
-# All admin endpoints now require Authorization header
-curl -X POST http://localhost:8081/v1/admin/policies \
-  -H "Authorization: Bearer $ADMIN_VC" \
-  -H "Content-Type: application/json" \
-  -d '{...}'
-```
-
-## API Overview
-
-The platform exposes versioned HTTP endpoints under `/v1`:
-
-- **Issuer Service (port 8080)**:
-  - `POST /v1/setup/bootstrap` — **bootstrap system issuer + root admin VC**
-  - `POST /v1/credentials/issue` — issue a verifiable credential
-  - `POST /v1/credentials/delegate` — mint a scoped delegated credential  
-  - `GET /healthz`, `GET /readyz` — health checks
-
-- **Verifier Service (port 8081)**:
-  - `POST /v1/credentials/verify` — verify a credential chain using DID resolution
-  - `POST /v1/gateway/authorize` — perform authorization and mint synthetic JWT
-  - **`POST /v1/admin/policies`** — **🔐 manage authorization policies (admin VC required)**
-  - **`POST /v1/admin/trust-registry`** — **🔐 manage trusted issuer DIDs (admin VC required)**
-  - `GET /healthz`, `GET /readyz` — health checks
-  - `GET /metrics` — **Prometheus metrics endpoint (when enabled)**
-
-- **S2S API (port 8082)**:
-  - `GET /orders` — protected resource requiring valid credentials
-
-See [API_OVERVIEW.md](API_OVERVIEW.md) for request/response flows, and the OpenAPI definition at [api/openapi.yaml](api/openapi.yaml).
-
-## Versioning Policy
-
-- Current API version: **v1** (surfaced in responses as `api_version`).
-- Backward compatible changes land under the same major version; breaking changes will publish a new `/v{n}` path.
-- Binary releases inject a build identifier via `-ldflags` to `internal/version.BuildVersion`.
-
-## Error Format
-
-All JSON errors follow a consistent envelope with enhanced validation support:
-
-```json
-{
-  "error": "validation_error",
-  "description": "Invalid request data",
-  "code": "validation_error",
-  "api_version": "v1",
-  "fields": [
-    {
-      "field": "subject_did",
-      "message": "DID must start with 'did:'",
-      "code": "field_validation_error"
-    }
-  ]
-}
-```
-
-**Error Types:**
-- `validation_error` — Input validation failures with field-level details
-- `invalid_did` — DID format validation errors
-- `internal_error` — Server-side errors (implementation details hidden)
-- `unauthorized` — Authentication/authorization failures
-
-## 📚 Learn More
-
-- **[Demo Guide](#-demo-guide)** — step-by-step instructions for trying the system with your own data
-- **[API Overview](API_OVERVIEW.md)** — complete endpoint reference with examples  
-- **[Policy Engine](POLICY_ENGINE.md)** — authorization system deep dive
-- **[Agent Delegation](AGENTS.md)** — how AI agents can act on behalf of users
-- **[Developer Guide](DEVELOPER_GUIDE.md)** — architecture and design decisions
-- **[Prometheus Metrics](METRICS_IMPLEMENTATION.md)** — production observability and monitoring setup
-- **[OpenAPI Spec](api/openapi.yaml)** — structured API contracts
-
-**Key Concepts to Understand**:
-- **DID Resolution**: How verifiers automatically resolve public keys from DIDs without pre-configuration
-- **Admin vs User VCs**: Admin VCs have `"vc_type": "admin"` and elevated permissions; user VCs cannot access admin endpoints
-- **Bootstrap Security**: Initial admin VC creation requires the bootstrap endpoint for secure system initialization  
-- **Credentials vs Policies**: Credentials prove identity/claims, policies control access to resources
-- **Delegation Chains**: How agents inherit scoped permissions from parent credentials  
-- **Trust Registry**: Which issuer DIDs are allowed to create valid credentials (managed per organization)
-- **Multi-tenancy**: How organizations are isolated from each other
-
-## What Are DIDs and VCs?
-
-Decentralized Identifiers (DIDs) are unique digital identifiers backed by cryptographic keys. They are not anchored to any single company or database, giving people, services, and AI agents a portable way to prove who they are without relying on a central authority.
-
-Verifiable Credentials (VCs) are digitally signed statements about someone or something. Because they are signed, anyone can check that a VC has not been tampered with and that it really came from the claimed issuer. In this project, VCs can carry claims such as roles, permissions, or other attributes.
-
-This service issues and verifies VCs bound to DIDs so that humans, services, and AI agents can authenticate and share trusted information across systems in an interoperable way.
-
-## 🔄 Recent Improvements (Developer Experience)
-
-### Enhanced Security & Standards Compliance
-- **✅ Fixed Placeholder Cryptography**: Replaced placeholder Ed25519 signing with proper cryptographic implementation
-- **✅ W3C-Compliant JWT Structure**: VCs now use standard JWT claims (`iat`, `exp`, `nbf`) alongside W3C VC fields
-- **✅ Canonical Data Model**: Single `VerifiableCredential` struct used across all services for consistency
-
-### Production Observability & Infrastructure
-- **✅ Prometheus Metrics**: Complete metrics collection for gateway authorization, verification performance, and system health
-- **✅ Redis Rate Limiting**: Sliding window rate limiting with DoS protection
-- **✅ Monitoring Stack**: Docker-based Prometheus + Grafana deployment for production visibility
-- **✅ Performance Tracking**: Authorization latency, cache hit rates, delegation depth analysis
-
-### Better Error Handling & Validation
-- **✅ Comprehensive DID Validation**: Format checking, length limits, and method validation
-- **✅ Structured Error Responses**: Field-level validation errors with clear error codes
-- **✅ Improved HTTP Status Codes**: More precise status codes for different error types
-
-### Security & Production Readiness
-- **✅ Secure Key Generation**: Replaced deterministic keys with crypto/rand for production safety
-- **✅ Bootstrap Security Documentation**: Added warnings about unauthenticated bootstrap endpoint
-- **✅ Enhanced Security Guidelines**: Updated with key management and production considerations
-
-### Enhanced Developer Experience
-```bash
-# Example: Clear validation errors now returned
-curl -X POST http://localhost:8080/v1/credentials/issue \
-  -d '{"subject_did": "invalid-did", "ttl_seconds": -1}'
-
-# Returns structured error:
-{
-  "error": "validation_error", 
-  "description": "Invalid request data",
-  "fields": [
-    {"field": "subject_did", "message": "DID must start with 'did:'", "code": "field_validation_error"},
-    {"field": "ttl_seconds", "message": "must be positive", "code": "field_validation_error"}
-  ],
-  "api_version": "v1"
-}
-```
-
-### Migration Guide
-- **Services**: Update imports to use `domain.VerifiableCredential` instead of local structs
-- **Error Handling**: Use new `WriteValidationError()` and `WriteDIDError()` functions for better UX
-- **JWT Parsing**: VCs now include both W3C fields (`@context`, `type`) and JWT claims (`iat`, `exp`) 
-- **Key Management**: Production deployments should disable deterministic key generation
-- **Bootstrap Security**: Network-protect or disable `/v1/setup/bootstrap` in production environments
-- **Validation**: All DID inputs now undergo format validation automatically
-
-## Key Features
-
-- **JWT-based Verifiable Credentials**: Issue Ed25519-signed JWT credentials with configurable TTL
-- **Credential Delegation**: Create scoped, short-lived credentials for agents acting on behalf of users
-- **Policy-based Authorization**: Fine-grained access control with configurable policies
-- **Trust Registry**: Manage trusted issuers and multi-tenant isolation
-- **Gateway Integration**: Generate synthetic JWTs for downstream API authorization
-- **Credential Chain Verification**: Validate delegation chains with proper scope inheritance
-- **DID Resolution**: Distributed public key resolution enabling multi-organization deployment without pre-shared keys
-- **Production Observability**: Comprehensive Prometheus metrics for monitoring and alerting
-- **Redis-backed Infrastructure**: Rate limiting and caching for production scalability
-- **Microservice Architecture**: Containerized services for issuer, verifier, and demo APIs
-- **Admin Authentication**: Admin endpoints protected by verifiable credentials with super-admin roles
-
-## 🔐 Security Model
-
-### Admin vs User VCs
-
-The system enforces strict separation between administrative and user operations:
-
-- **Admin VCs**: Have `"vc_type": "admin"` and `"super-admin"` role, valid for 6 months
-- **User VCs**: Standard credentials for application access, cannot access admin endpoints
-- **Bootstrap Required**: Initial admin VC must be created via `/v1/setup/bootstrap`
-
-### Admin Endpoint Protection
-
-All `/v1/admin/*` endpoints require a valid admin VC in the Authorization header:
-
-```bash
-curl -X POST http://localhost:8081/v1/admin/policies \
-  -H "Authorization: Bearer <admin-vc-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "example-policy", ...}'
-```
-
-**Security guarantees:**
-- User VCs are rejected with `"admin_credential_required"` error
-- Admin VCs are validated for proper type, role, and signature
-- Bootstrap endpoint is unprotected (one-time setup only)
-
-## 🌐 DID Resolution & Multi-Organization Support
-
-### How DID Resolution Works
-
-The system uses **DID Resolution** to enable distributed verification without pre-shared keys. Instead of manually configuring public keys, verifiers automatically resolve public keys from DIDs.
-
-**Traditional Approach (❌ Doesn't Scale)**:
-```go
-// Hard-coded key maps - requires manual coordination
-issuerKeys := map[string]crypto.PublicKey{
-    "did:jwk:abc123...": publicKey1,
-    "did:jwk:def456...": publicKey2,
-}
-```
-
-**DID Resolution Approach (✅ Scales Globally)**:
-```go
-// Automatic resolution - no pre-configuration needed
-publicKey, err := didResolver.ResolvePublicKey(ctx, "did:jwk:abc123...")
-```
-
-### Supported DID Methods
-
-#### **did:jwk (Self-contained)**
-- **Format**: `did:jwk:eyJrdHkiOiJPS1AiLCJjcnYi...` 
-- **Resolution**: Extracts public key directly from the DID (no network calls)
-- **Use Case**: Perfect for microservices, agents, and ephemeral identities
-- **Example**: `did:jwk:eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6Ik9QRGhLb3hQeXJqbmJZUWc1cFNHS2FoOXFMQ3g2eE5vVEdJdHZ1MDhiZ1UifQ`
-
-#### **did:web (Production Ready)** ✅
-- **Format**: `did:web:example.org` or `did:web:bank.example.com:departments:hr`
-- **Resolution**: HTTPS lookup to `https://example.org/.well-known/did.json`
-- **Use Case**: Enterprise organizations with existing web infrastructure
-- **Status**: Fully implemented with security-first approach
-- **Security Features**:
-  - HTTPS-only by default (configurable for testing)
-  - Document size limits (10KB default)
-  - Request timeouts (10s default)  
-  - Comprehensive input validation
-
-> **Note**: The repository includes a `resolver-service` for DID document storage/retrieval. The **DID Resolution** described here is different - it's the built-in capability for resolving public keys directly from DIDs during credential verification.
-
-### Multi-Organization Deployment
-
-**Step 1**: Organizations deploy independently
-```bash
-# Organization A (Bank)
-docker run issuer-service:latest
-# Issues credentials with did:jwk:bank-key...
-
-# Organization B (Government) 
-docker run verifier-service:latest
-# Verifies credentials using DID resolution
-```
-
-**Step 2**: Establish trust relationships
-```bash
-# Government decides to trust Bank's issuer DID
-curl -X POST http://gov-verifier/v1/admin/trust-registry \
-  -H "Authorization: Bearer <admin-vc>" \
-  -d '{"issuer_did": "did:jwk:bank-key...", "trusted": true}'
-```
-
-**Step 3**: Cross-organizational verification works automatically
-```bash
-# Bank issues credential
-credential=$(curl -X POST http://bank-issuer/v1/credentials/issue \
-  -d '{"subject_did": "did:jwk:citizen123", "claims": {"verified_citizen": true}}')
-
-# Government verifies without any key exchange!
-curl -X POST http://gov-verifier/v1/credentials/verify \
-  -d '{"credential": "'$credential'"}'
-# ✅ SUCCESS - DID resolution automatically found Bank's public key
-```
-
-### Trust Registry Management
-
-Verifiers maintain trust registries that determine which issuer DIDs to accept:
-
-```bash
-# List trusted issuers
-curl http://localhost:8081/v1/admin/trust-registry
-
-# Add trusted issuer (requires admin VC)
-curl -X POST http://localhost:8081/v1/admin/trust-registry \
-  -H "Authorization: Bearer <admin-vc>" \
-  -d '{
-    "issuer_did": "did:jwk:eyJrdHkiOiJPS1AiLi4u",
-    "trusted": true,
-    "metadata": {"organization": "Trusted Bank Corp"}
-  }'
-
-# Remove trust
-curl -X DELETE http://localhost:8081/v1/admin/trust-registry/did:jwk:eyJrdHkiOi... \
-  -H "Authorization: Bearer <admin-vc>"
-```
-
-### Benefits for Distributed Deployment
-
-✅ **No Key Exchange**: Organizations don't need to share public keys manually  
-✅ **Automatic Resolution**: Public keys are resolved from DIDs cryptographically  
-✅ **Trust Control**: Each verifier decides which issuers to trust  
-✅ **Key Rotation**: New keys automatically work (did:jwk creates new DID)  
-✅ **Global Scalability**: Works across any number of organizations  
-✅ **Zero Dependencies**: did:jwk resolution requires no external infrastructure  
-
-## Requirements
-
-- Go 1.22 or higher
-- PostgreSQL 16+
-- Docker 24+
-- Docker Compose v2
-
-## Installation
-
-1. Clone the repository:
-
+Issue, delegate, verify, and authorize W3C Verifiable Credentials (VCs) with DID-backed keys and a gateway that can mint synthetic JWTs for legacy APIs.
+
+## What this project is
+A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation chains, enforcing tenant-scoped authorization policies, and translating trusted credentials into standard `Bearer` tokens for downstream services.
+
+## Features at a Glance
+- **Issuer (port 8080):** Issue root and delegated credentials, plus a one-time bootstrap endpoint for local admin setup.
+- **Verifier & Gateway (port 8081):** Verify credential chains, evaluate policies, and optionally mint synthetic JWTs.
+- **Sample API (port 8082):** A demo `/orders` endpoint protected by synthetic JWTs.
+- **Delegation & Agents:** Constrain scope/TTL when minting child credentials so agents can act on behalf of users.
+- **Trust Registry:** Per-tenant trusted issuer list backed by Postgres or in-memory store; default issuer is pre-seeded for local runs.
+- **Policy Engine:** Hybrid RBAC/ABAC rules with resource/action matching and claim-based conditions.
+- **DID Resolution:** Built-in `did:jwk` and `did:web` resolvers so verifiers can fetch public keys directly from DIDs.
+- **Observability & Safety:** Structured audit logging, readiness probes, optional Redis caching/rate-limiting, and Prometheus metrics hooks.
+- **SDKs:** First-party Go and Node.js clients for issuing, verifying, and gateway authorization.
+
+## Key Concepts
+- **Decentralized Identifiers (DIDs):** Public-key based identifiers (`did:jwk`, `did:web`) resolved at verification time—no manual key exchange.
+- **Verifiable Credentials (VCs):** JWTs that carry issuer, subject, expiry, and arbitrary claims. Delegated VCs must tighten scope/TTL relative to parents.
+- **Gateway & Synthetic JWTs:** `/v1/gateway/authorize` returns an allow/deny decision and can mint a short-lived JWT so downstream services can keep using `Authorization: Bearer <token>`.
+- **Tenancy:** `X-Tenant-ID` header (or the default tenant in single-tenant mode) scopes trust registries and policies; Docker Compose runs in single-tenant mode by default.
+- **Policy Evaluation:** Requests are authorized against tenant policies using action/resource matching plus optional scope/claim conditions.
+
+## Quick Start
+Prereqs: Docker and Docker Compose v2.
+
+1. **Clone & start the stack**
    ```bash
    git clone https://github.com/bradtumy/credential-service.git
    cd credential-service
-   ```
-
-2. Start all services:
-
-   ```bash
    docker compose up --build
    ```
 
-## 🎯 Demo Guide
-
-### **Built-in Demo (Works Out of the Box)**
-
-The system includes a working demo that issues credentials, verifies them, and accesses a protected API:
-
-```bash
-# Run the complete demo workflow
-go run ./examples/go-basic
-
-# Or run the agent delegation demo
-go run ./examples/agent-basic
-```
-
-### **Custom Demo: Using Your Own Data**
-
-⚠️ **Important**: The system uses **policy-based authorization**. If you change credential data, you may need to update policies to match.
-
-#### **1. Issue Credential with Custom Data**
-
-```bash
-curl -X POST http://localhost:8080/v1/credentials/issue \
-  -H "Content-Type: application/json" \
-  -d '{
-    "subject_did": "did:jwk:your-custom-user",
-    "ttl_seconds": 3600,
-    "claims": {
-      "scope": ["your-resource:read"],
-      "roles": ["your-role"],
-      "department": "engineering"
-    }
-  }'
-```
-
-#### **2. Create Matching Policy** 🔐 **Requires Admin VC**
-
-The default policy only allows access to `"orders"` with `"read"` action. For custom resources, create a policy using your admin VC:
-
-```bash
-curl -X POST http://localhost:8081/v1/admin/policies \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <admin-vc-from-bootstrap>" \
-  -d '{
-    "name": "custom-demo-policy",
-    "description": "Allow access to your custom resource",
-    "effect": "allow",
-    "actions": ["read", "write"],
-    "resources": ["your-resource", "your-resource/*"],
-    "subjects": ["any"],
-    "conditions": {
-      "scope_contains": "your-resource:read"
-    },
-    "priority": 50,
-    "enabled": true
-  }'
-```
-
-#### **3. Test Authorization**
-
-```bash
-# Verify credential and check authorization
-curl -X POST http://localhost:8081/v1/gateway/authorize \
-  -H "Content-Type: application/json" \
-  -d '{
-    "credentials": ["<your-jwt-credential>"],
-    "resource": "your-resource",
-    "action": "read",
-    "want_synthetic_jwt": true
-  }'
-```
-
-### **Policy Management for Demos**
-
-#### **View Current Policies**
-```bash
-curl http://localhost:8081/v1/admin/policies | jq '.policies[]'
-```
-
-#### **Common Demo Scenarios**
-
-1. **Role-based Access**:
+2. **Health checks**
    ```bash
-   # Issue credential with role
-   curl -X POST http://localhost:8080/v1/credentials/issue \
-     -d '{"subject_did": "did:jwk:admin", "claims": {"roles": ["admin"]}}'
-   
-   # Create role-based policy  
-   curl -X POST http://localhost:8081/v1/admin/policies \
-     -d '{"name": "admin-access", "effect": "allow", "actions": ["*"], "resources": ["*"], "subjects": ["role:admin"]}'
+   curl http://localhost:8080/healthz   # issuer
+   curl http://localhost:8081/readyz    # verifier + DB readiness
+   curl http://localhost:8082/orders -i # expect 401 without token
    ```
 
-2. **Scope-based Access**:
+3. **Issue a credential (issuer @ 8080)**
    ```bash
-   # Different scopes require different policies
-   curl -X POST http://localhost:8080/v1/credentials/issue \
-     -d '{"subject_did": "did:jwk:user", "claims": {"scope": ["payments:read", "users:write"]}}'
-   ```
-
-3. **Resource Patterns**:
-   ```bash
-   # Wildcard resources
-   curl -X POST http://localhost:8081/v1/admin/policies \
-     -d '{"name": "api-access", "effect": "allow", "actions": ["read"], "resources": ["api/*"], "subjects": ["any"]}'
-   ```
-
-### **Using did:web for Enterprise Deployment**
-
-The credential service now supports `did:web` for organizations with existing web infrastructure. This enables enterprise deployments where public keys are hosted on your existing domain.
-
-#### **Setting Up did:web Identity**
-
-1. **Host DID Document**: Create a DID document at `https://yourdomain.com/.well-known/did.json`
-
-   ```json
-   {
-     "id": "did:web:yourdomain.com",
-     "verificationMethod": [{
-       "id": "did:web:yourdomain.com#key1",
-       "type": "JsonWebKey2020",
-       "controller": "did:web:yourdomain.com", 
-       "publicKeyJwk": {
-         "kty": "OKP",
-         "crv": "Ed25519",
-         "x": "your-base64url-encoded-public-key"
-       }
-     }]
-   }
-   ```
-
-2. **Add to Trust Registry**: Register the did:web identity as a trusted issuer
-
-   ```bash
-   curl -X POST http://localhost:8081/v1/admin/trust-registry \
-     -H "Authorization: Bearer <admin-vc>" \
+   VC=$(curl -s -X POST http://localhost:8080/v1/credentials/issue \
      -H "Content-Type: application/json" \
      -d '{
-       "issuer_did": "did:web:yourdomain.com",
-       "trusted": true
-     }'
+       "subject_did": "did:example:alice",
+       "ttl_seconds": 600,
+       "claims": {"aud": "sample-api", "scope": "read:orders"}
+     }' | jq -r '.credential')
+   echo "$VC"
    ```
 
-3. **Issue Credentials**: Use the did:web identity to issue credentials
-
+4. **Verify it (verifier @ 8081)**
    ```bash
-   curl -X POST http://localhost:8080/v1/credentials/issue \
+   curl -s -X POST http://localhost:8081/v1/credentials/verify \
+     -H "Content-Type: application/json" \
+     -d '{"credential": "'$VC'", "expected_audience": "sample-api"}' | jq
+   ```
+
+5. **Authorize through the gateway + mint a synthetic JWT**
+   ```bash
+   SYNTH=$(curl -s -X POST http://localhost:8081/v1/gateway/authorize \
      -H "Content-Type: application/json" \
      -d '{
-       "subject_did": "did:jwk:user-key-here",
-       "ttl_seconds": 3600,
-       "claims": {"scope": ["orders:read"]},
-       "issuer_override": "did:web:yourdomain.com"
-     }'
+       "credential": "'$VC'",
+       "expected_audience": "sample-api",
+       "want_synthetic_jwt": true,
+       "resource": "orders",
+       "action": "read"
+     }' | tee /dev/tty | jq -r '.synthetic_jwt')
    ```
 
-#### **Advanced did:web Configuration**
-
-- **Subdomain/Path Support**: `did:web:bank.example.com:departments:hr` resolves to `https://bank.example.com/departments/hr/did.json`
-- **URL Encoding**: `did:web:example.com%3A8080` resolves to `https://example.com:8080/.well-known/did.json`
-- **Security Features**: HTTPS-only by default, 10KB document size limit, 10-second timeout
-- **Testing**: Set `AllowInsecureWeb: true` in configuration for HTTP testing (never use in production)
+6. **Call the protected demo API (sample @ 8082)**
+   ```bash
+   curl -s http://localhost:8082/orders \
+     -H "Authorization: Bearer $SYNTH" | jq
    ```
 
-### **Demo Troubleshooting**
+The verifier ships with a default policy that allows `read` on `orders` for any subject, and the trust registry is seeded with the local issuer key, so the above flow works out of the box.
 
-**❌ Problem**: Getting `{"allowed": false, "reason": "policy_denied"}`
-**✅ Solution**: Create a policy that matches your credential's subject, claims, and target resource.
-
-**❌ Problem**: Credential verification fails
-**✅ Solution**: Check that the issuer is trusted and credential hasn't expired.
-
-**❌ Problem**: `scope_contains` condition fails
-**✅ Solution**: Ensure credential `claims.scope` includes the required values.
-
-## Configuration
-
-The services are configured via environment variables in `docker-compose.yml`:
-
-- **Issuer**: `ISSUER_HTTP_PORT=8080`
-- **Verifier**: `VERIFIER_HTTP_PORT=8081`, database connection for trust registry and policies
-- **S2S API**: `API_HTTP_PORT=8082` for demo protected resources
-
-### Production Configuration
-
-For production deployments with monitoring and observability:
-
+### Delegation in one command (optional)
+Mint a constrained agent credential and authorize it:
 ```bash
-# Enable Prometheus metrics
-METRICS_TYPE=prometheus
-METRICS_NAMESPACE=your_service_name
+delegated=$(curl -s -X POST http://localhost:8080/v1/credentials/delegate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parent_credential": "'$VC'",
+    "delegate_did": "did:example:agent",
+    "scope": ["read:orders"],
+    "ttl_seconds": 300
+  }' | jq -r '.credential')
 
-# Redis for rate limiting and caching
-REDIS_ADDR=redis:6379
-RATE_LIMIT_ENABLED=true
-GATEWAY_CACHE=true
-
-# Use production monitoring stack
-docker-compose -f docker-compose.monitoring.yml up -d
+curl -s -X POST http://localhost:8081/v1/gateway/authorize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "credentials": ["'$VC'", "'$delegated'"],
+    "expected_audience": "sample-api",
+    "resource": "orders",
+    "action": "read"
+  }' | jq
 ```
 
-See [METRICS_IMPLEMENTATION.md](METRICS_IMPLEMENTATION.md) for complete production setup with Prometheus, Grafana, and monitoring best practices.
+## Architecture Overview
+- **Issuer service (`cmd/issuer`, :8080):** Signs VCs, supports delegation, exposes `/v1/setup/bootstrap` for one-time admin credential creation, and serves `/healthz`/`/readyz`.
+- **Verifier + Gateway (`cmd/verifier`, :8081):** Verifies chains via DID resolution, enforces trust registries, evaluates policies, and returns authorization decisions/synthetic JWTs; exposes `/metrics` when Prometheus is enabled.
+- **Sample API (`samples/s2s/api-service`, :8082):** Consumes synthetic JWTs on `/orders` to demonstrate legacy compatibility.
+- **Postgres (5432, Compose only):** Stores tenant data, policies, and trusted issuers when DB-backed stores are enabled.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for module layout, [TENANCY.md](TENANCY.md) for tenant scoping, [POLICY_ENGINE.md](POLICY_ENGINE.md) for authorization rules, and [GATEWAY_INTEGRATION.md](GATEWAY_INTEGRATION.md) for gateway usage.
 
+## APIs & Docs
+| Doc | What it covers |
+| --- | --- |
+| [api/openapi.yaml](api/openapi.yaml) | OpenAPI 3.1 for issuer, verifier, gateway, and health endpoints. |
+| [API_OVERVIEW.md](API_OVERVIEW.md) | Endpoint summaries, sample payloads, and the happy-path flow. |
+| [POLICY_ENGINE.md](POLICY_ENGINE.md) | Policy schema, evaluation order, and admin endpoints under `/v1/admin/policies`. |
+| [TENANCY.md](TENANCY.md) | Single vs. multi-tenant behavior and tenant resolution rules. |
+| [GATEWAY_INTEGRATION.md](GATEWAY_INTEGRATION.md) | How `/v1/gateway/authorize` plugs into reverse proxies and mints synthetic JWTs. |
+| [AGENTS.md](AGENTS.md) | Delegation and on-behalf-of semantics for agents. |
 
-## Testing
+## SDKs
+- **Go (`sdk/go`):**
+  ```go
+  client := &sdk.Client{BaseURL: "http://localhost:8080"}
+  issued, _ := client.IssueCredential(ctx, sdk.IssueRequest{SubjectDID: "did:example:alice", TTLSeconds: 600})
+  decision, _ := client.GatewayAuthorize(ctx, sdk.GatewayAuthorizeRequest{Credential: issued.Credential, WantSyntheticJWT: true})
+  ```
+- **Node.js (`sdk/node`):**
+  ```js
+  import { Client } from '@credential-service/sdk'
+  const client = new Client({ baseUrl: 'http://localhost:8080' })
+  const issued = await client.issueCredential({ subject_did: 'did:example:alice', ttl_seconds: 600 })
+  const decision = await client.gatewayAuthorize({ credential: issued.credential, want_synthetic_jwt: true })
+  ```
 
-Instructions for running tests, if applicable.
-
-**Example:**
-
-```bash
-go test ./...
-```
-
-## 🛡️ Security Best Practices
-
-### Production Deployment
-
-- **Key Management**: Use external KMS for production security - see [KMS_DEPLOYMENT.md](./KMS_DEPLOYMENT.md) for HashiCorp Vault and Google Cloud KMS setup
-- **Secure Bootstrap**: Run bootstrap endpoint only during initial setup, then disable or restrict access
-- **Admin VC Storage**: Store admin VCs securely (encrypted storage, key management systems)
-- **Trust Registry Security**: Carefully manage trusted issuer DIDs - only trust verified organizations
-- **DID Resolution**: Monitor DID resolution for security - did:jwk is self-contained and secure
-- **Network Security**: Use HTTPS/TLS for all API communications in production
-- **VC Rotation**: Regularly rotate admin VCs before 6-month expiry
-- **Audit Logging**: Monitor all admin endpoint access and trust registry changes for security auditing
-
-### Development vs Production
-
-This README shows HTTP endpoints for simplicity. In production:
-- Use HTTPS with proper certificates
-- Implement network-level security (VPNs, firewalls)
-- Regular security assessments of the credential verification logic
-- Consider implementing admin VC revocation lists for immediate access termination
+## Roadmap / Current Status
+- **Implemented:** Issuance and delegation endpoints, DID-based verification, gateway authorization with synthetic JWT minting, seeded trust registry for local runs, tenant-scoped policy engine with Postgres or in-memory stores, health/readiness probes, optional Prometheus metrics and Redis-backed caching/rate-limiting.
+- **Upcoming (see [ROADMAP.md](ROADMAP.md)):** SD-JWT support, richer issuance policies and audit trails, deeper KMS/Vault integrations, and expanded integration/e2e testing.
 
 ## Contributing
-
-How others can contribute to the project.
-
-1. Fork the repository.
-2. Create a new branch (git checkout -b feature-branch).
-3. Commit your changes (git commit -am 'Add new feature').
-4. Push the branch (git push origin feature-branch).
-5. Open a Pull Request.
+1. Create a feature branch: `git checkout -b feature/your-change`.
+2. Make changes and add tests.
+3. Run the test suite: `go test ./...` (or `make test` for unit coverage on core services).
+4. Commit and open a Pull Request.
 
 ## License
-
-This project is licensed under the Apache2 License - see the LICENSE file for details.
-
-## Contact
-
-Email: <brad@tumy-tech.com>  
-GitHub: [bradtumy/credential-service](https://github.com/bradtumy/credential-service)
+Apache License 2.0. See [LICENSE](LICENSE) for details.
