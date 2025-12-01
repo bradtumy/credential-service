@@ -56,38 +56,40 @@ const (
 	maxFieldLength      = 512
 )
 
+// GatewayConfig encapsulates all dependencies for gateway route handlers.
+type GatewayConfig struct {
+	Resolver        func(string) (crypto.PublicKey, error)
+	Registry        domain.TrustRegistry
+	PolicyEngine    policy.Engine
+	DefaultTenantID string
+	SigningKey      crypto.Signer
+	JWTIssuer       string
+	DecisionCache   cache.DecisionCache
+	Limiter         ratelimit.Limiter
+	Metrics         metrics.GatewayMetrics
+	Now             func() time.Time
+}
+
 // RegisterGatewayRoutes wires gateway-specific routes into the provided mux.
-func RegisterGatewayRoutes(
-	mux *http.ServeMux,
-	resolver func(string) (crypto.PublicKey, error),
-	registry domain.TrustRegistry,
-	policyEngine policy.Engine,
-	defaultTenantID string,
-	signingKey crypto.Signer,
-	jwtIssuer string,
-	decisionCache cache.DecisionCache,
-	limiter ratelimit.Limiter,
-	gwMetrics metrics.GatewayMetrics,
-	now func() time.Time,
-) {
-	if now == nil {
-		now = time.Now
+func RegisterGatewayRoutes(mux *http.ServeMux, cfg *GatewayConfig) {
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
 
-	if policyEngine == nil {
-		policyEngine = policy.NoOpEngine{}
+	if cfg.PolicyEngine == nil {
+		cfg.PolicyEngine = policy.NoOpEngine{}
 	}
 
-	if decisionCache == nil {
-		decisionCache = cache.NoopDecisionCache{}
+	if cfg.DecisionCache == nil {
+		cfg.DecisionCache = cache.NoopDecisionCache{}
 	}
 
-	if limiter == nil {
-		limiter = ratelimit.NoopLimiter{}
+	if cfg.Limiter == nil {
+		cfg.Limiter = ratelimit.NoopLimiter{}
 	}
 
-	if gwMetrics == nil {
-		gwMetrics = metrics.DefaultGatewayMetrics
+	if cfg.Metrics == nil {
+		cfg.Metrics = metrics.DefaultGatewayMetrics
 	}
 
 	mux.HandleFunc("/v1/gateway/authorize", func(w http.ResponseWriter, r *http.Request) {
@@ -105,13 +107,13 @@ func RegisterGatewayRoutes(
 
 		tenantID := TenantIDFromContext(r.Context())
 		if tenantID == "" {
-			tenantID = defaultTenantID
+			tenantID = cfg.DefaultTenantID
 		}
 
-		gwMetrics.IncAuthzRequest(tenantID)
+		cfg.Metrics.IncAuthzRequest(tenantID)
 
 		if err := validateGatewayRequest(req); err != nil {
-			gwMetrics.IncAuthzDeny(tenantID, "invalid_request")
+			cfg.Metrics.IncAuthzDeny(tenantID, "invalid_request")
 			WriteAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
@@ -122,33 +124,33 @@ func RegisterGatewayRoutes(
 		}
 
 		rateKey := buildRateLimitKey(r.RemoteAddr, tenantID)
-		allowed, err := limiter.Allow(rateKey)
+		allowed, err := cfg.Limiter.Allow(rateKey)
 		if err != nil {
 			logging.Logger.With("error", err.Error(), "tenant_id", tenantID).Warn("rate limit check error")
 		}
 		if !allowed {
-			gwMetrics.IncAuthzDeny(tenantID, "rate_limited")
+			cfg.Metrics.IncAuthzDeny(tenantID, "rate_limited")
 			WriteAPIError(w, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 			return
 		}
 
 		cacheKey := buildCacheKey(tokens, tenantID, req.Resource, req.Action, req.ExpectedAudience, req.WantSyntheticJWT)
-		if cached, ok := readCachedDecision(decisionCache, cacheKey); ok {
-			gwMetrics.IncAuthzCacheHit(tenantID)
+		if cached, ok := readCachedDecision(cfg.DecisionCache, cacheKey); ok {
+			cfg.Metrics.IncAuthzCacheHit(tenantID)
 			logGatewayDecision(started, tenantID, cached, true)
 			writeDecision(w, cached)
 			if cached.Allowed {
-				gwMetrics.IncAuthzAllow(tenantID)
+				cfg.Metrics.IncAuthzAllow(tenantID)
 			} else {
-				gwMetrics.IncAuthzDeny(tenantID, cached.Reason)
+				cfg.Metrics.IncAuthzDeny(tenantID, cached.Reason)
 			}
 			return
 		}
-		gwMetrics.IncAuthzCacheMiss(tenantID)
+		cfg.Metrics.IncAuthzCacheMiss(tenantID)
 
 		deps := domain.VerifierDependencies{ResolveIssuerPublicKey: func(issuer string) (crypto.PublicKey, error) {
-			if registry != nil {
-				trusted, err := registry.IsTrustedIssuer(r.Context(), tenantID, issuer)
+			if cfg.Registry != nil {
+				trusted, err := cfg.Registry.IsTrustedIssuer(r.Context(), tenantID, issuer)
 				if err != nil {
 					return nil, fmt.Errorf("trust lookup: %w", err)
 				}
@@ -156,18 +158,18 @@ func RegisterGatewayRoutes(
 					return nil, domain.ErrUntrustedIssuer
 				}
 			}
-			if resolver == nil {
+			if cfg.Resolver == nil {
 				return nil, fmt.Errorf("resolver not configured")
 			}
-			return resolver(issuer)
+			return cfg.Resolver(issuer)
 		}}
 
-		chainResult, err := domain.VerifyCredentialChain(tokens, deps, domain.VerificationOptions{ExpectedAudience: req.ExpectedAudience, MaxDelegationDepth: 3}, now())
+		chainResult, err := domain.VerifyCredentialChain(tokens, deps, domain.VerificationOptions{ExpectedAudience: req.ExpectedAudience, MaxDelegationDepth: 3}, cfg.Now())
 		if err != nil {
 			reason := mapVerificationErrorToReason(err)
 			metrics.DefaultVerifierMetrics.IncVerificationFailure(reason)
 			resp := GatewayAuthorizeResponse{Allowed: false, Reason: reason, APIVersion: version.APIVersion, TenantID: tenantID}
-			gwMetrics.IncAuthzDeny(tenantID, reason)
+			cfg.Metrics.IncAuthzDeny(tenantID, reason)
 			logGatewayDecision(started, tenantID, resp, false)
 			writeDecision(w, resp)
 			return
@@ -188,13 +190,13 @@ func RegisterGatewayRoutes(
 			},
 		}
 
-		policyResult, err := policyEngine.Evaluate(evalInput)
+		policyResult, err := cfg.PolicyEngine.Evaluate(evalInput)
 		if err != nil {
 			WriteAPIError(w, http.StatusInternalServerError, "policy_error", err.Error())
 			return
 		}
 		if !policyResult.Allow {
-			gwMetrics.IncAuthzDeny(tenantID, "policy_denied")
+			cfg.Metrics.IncAuthzDeny(tenantID, "policy_denied")
 			denyResp := GatewayAuthorizeResponse{Allowed: false, Reason: "policy_denied", TenantID: tenantID, PolicyID: policyResult.PolicyID, APIVersion: version.APIVersion}
 			logGatewayDecision(started, tenantID, denyResp, false)
 			writeDecision(w, denyResp)
@@ -226,10 +228,10 @@ func RegisterGatewayRoutes(
 		}
 
 		if req.WantSyntheticJWT {
-			jwt, err := domain.BuildSyntheticJWT(decision, signingKey, jwtIssuer, 15*time.Minute)
+			jwt, err := domain.BuildSyntheticJWT(decision, cfg.SigningKey, cfg.JWTIssuer, 15*time.Minute)
 			if err != nil {
 				resp := GatewayAuthorizeResponse{Allowed: false, Reason: "jwt_error", APIVersion: version.APIVersion, TenantID: tenantID}
-				gwMetrics.IncAuthzDeny(tenantID, "jwt_error")
+				cfg.Metrics.IncAuthzDeny(tenantID, "jwt_error")
 				writeDecision(w, resp)
 				return
 			}
@@ -237,9 +239,9 @@ func RegisterGatewayRoutes(
 		}
 
 		metrics.DefaultVerifierMetrics.IncVerificationSuccess("ok")
-		gwMetrics.IncAuthzAllow(tenantID)
-		ttl := computeDecisionTTL(chainResult, now())
-		persistDecision(decisionCache, cacheKey, response, ttl)
+		cfg.Metrics.IncAuthzAllow(tenantID)
+		ttl := computeDecisionTTL(chainResult, cfg.Now())
+		persistDecision(cfg.DecisionCache, cacheKey, response, ttl)
 		logGatewayDecision(started, tenantID, response, false)
 		writeDecision(w, response)
 	})

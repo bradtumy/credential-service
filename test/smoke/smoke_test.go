@@ -64,7 +64,14 @@ func TestSmokeFlow(t *testing.T) {
 
 	verifierMux := http.NewServeMux()
 	httpx.RegisterVerifierRoutes(verifierMux, resolver, registry, issuerCfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
-	httpx.RegisterGatewayRoutes(verifierMux, resolver, registry, nil, issuerCfg.DefaultTenantID, signer, issuerDID, nil, nil, nil, time.Now)
+	httpx.RegisterGatewayRoutes(verifierMux, &httpx.GatewayConfig{
+		Resolver:        resolver,
+		Registry:        registry,
+		DefaultTenantID: issuerCfg.DefaultTenantID,
+		SigningKey:      signer,
+		JWTIssuer:       issuerDID,
+		Now:             time.Now,
+	})
 	verifierServer := httptest.NewServer(verifierMux)
 	t.Cleanup(verifierServer.Close)
 

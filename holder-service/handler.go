@@ -68,7 +68,6 @@ type VerifiablePresentation struct {
 }
 
 func ReceiveCredential(w http.ResponseWriter, r *http.Request) {
-	log.Println("Entered the Receive Credentials Handler")
 	// Handle receiving a verifiable credential
 	var vc VerifiableCredential
 
@@ -77,8 +76,6 @@ func ReceiveCredential(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid credential format", http.StatusBadRequest)
 		return
 	}
-	// Debug:
-	log.Println("Debug: VC: ", vc)
 
 	// Store the credential in memory (for now)
 	StoreCredential(vc)
@@ -231,9 +228,7 @@ func fetchPrivateKeyFromVault(holderDID string) (ed25519.PrivateKey, error) {
 	}
 
 	// Define the path to your private key in Vault
-	log.Println("Holder DID: ", holderDID)
 	secretPath := fmt.Sprintf("secret/data/dids/%s", holderDID) // Adjust this path as needed
-	log.Println("Secret Path --> We stored the secrets here: ", secretPath)
 
 	// Read the private key from Vault
 	secret, err := client.Logical().Read(secretPath)
