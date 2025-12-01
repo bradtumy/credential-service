@@ -24,7 +24,7 @@ A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation 
 - **Policy Evaluation:** Requests are authorized against tenant policies using action/resource matching plus optional scope/claim conditions.
 
 ## Quick Start
-Prereqs: Docker and Docker Compose v2.
+Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so you can copy/paste the `curl` examples or port the payloads into your own client.
 
 1. **Clone & start the stack**
    ```bash
@@ -33,14 +33,14 @@ Prereqs: Docker and Docker Compose v2.
    docker compose up --build
    ```
 
-2. **Health checks**
+2. **Hit the health endpoints** to confirm the services are reachable:
    ```bash
    curl http://localhost:8080/healthz   # issuer
    curl http://localhost:8081/readyz    # verifier + DB readiness
    curl http://localhost:8082/orders -i # expect 401 without token
    ```
 
-3. **Issue a credential (issuer @ 8080)**
+3. **Issue a credential via the issuer API (port 8080)**
    ```bash
    VC=$(curl -s -X POST http://localhost:8080/v1/credentials/issue \
      -H "Content-Type: application/json" \
@@ -49,17 +49,22 @@ Prereqs: Docker and Docker Compose v2.
        "ttl_seconds": 600,
        "claims": {"aud": "sample-api", "scope": "read:orders"}
      }' | jq -r '.credential')
-   echo "$VC"
+
+   # The response includes the signed VC:
+   # { "credential": "eyJhbGciOiJ..." }
    ```
 
-4. **Verify it (verifier @ 8081)**
+4. **Verify the credential through the verifier API (port 8081)**
    ```bash
    curl -s -X POST http://localhost:8081/v1/credentials/verify \
      -H "Content-Type: application/json" \
      -d '{"credential": "'$VC'", "expected_audience": "sample-api"}' | jq
+
+   # Sample response:
+   # { "active": true, "issuer": "did:jwk:...", "subject": "did:example:alice" }
    ```
 
-5. **Authorize through the gateway + mint a synthetic JWT**
+5. **Authorize through the gateway API and mint a synthetic JWT**
    ```bash
    SYNTH=$(curl -s -X POST http://localhost:8081/v1/gateway/authorize \
      -H "Content-Type: application/json" \
@@ -72,13 +77,13 @@ Prereqs: Docker and Docker Compose v2.
      }' | tee /dev/tty | jq -r '.synthetic_jwt')
    ```
 
-6. **Call the protected demo API (sample @ 8082)**
+6. **Call the protected demo API using the synthetic JWT**
    ```bash
    curl -s http://localhost:8082/orders \
      -H "Authorization: Bearer $SYNTH" | jq
    ```
 
-The verifier ships with a default policy that allows `read` on `orders` for any subject, and the trust registry is seeded with the local issuer key, so the above flow works out of the box.
+The verifier ships with a default policy that allows `read` on `orders` for any subject, and the trust registry is seeded with the local issuer key, so the above API flow works out of the box.
 
 ### Delegation in one command (optional)
 Mint a constrained agent credential and authorize it:
