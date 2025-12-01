@@ -42,6 +42,15 @@ type DelegateRequest struct {
 
 // RegisterIssuerRoutes wires issuer HTTP routes into the provided mux.
 func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg config.IssuerConfig, auditStore storage.AuditStore) {
+	// Key generation endpoint
+	mux.HandleFunc("/v1/keys/generate", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST method is allowed")
+			return
+		}
+		HandleKeygeneration(w, r)
+	})
+
 	mux.HandleFunc("/v1/credentials/issue", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST method is allowed")
