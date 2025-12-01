@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration test-e2e test-coverage lint sec ci keygen build-all clean dev-up dev-down help
+.PHONY: test test-unit test-integration test-e2e test-coverage lint sec ci keygen build-all clean dev-up dev-down help examples-sd-jwt-go examples-sd-jwt-node
 
 MODULE_PATH=./...
 VERSION?=dev
@@ -19,6 +19,8 @@ help:
 	@echo "  make dev-down       - Stop development environment"
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make ci             - Run all CI checks"
+	@echo "  make examples-sd-jwt-go   - Run Go SD-JWT example (requires ALICE_DID)"
+	@echo "  make examples-sd-jwt-node - Run Node SD-JWT example (requires ALICE_DID)"
 
 test: test-unit
 
@@ -93,3 +95,14 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf bin/ coverage.out coverage.html
 	@echo "✓ Clean complete"
+
+examples-sd-jwt-go:
+	@echo "Running Go SD-JWT example..."
+	@[ -z "$$ALICE_DID" ] && echo "ALICE_DID is required. Generate via ./bin/keygen -did-only and export ALICE_DID" && exit 1 || true
+	@cd examples/sdk-go/sd-jwt2 && go mod tidy && ISSUER_URL=$${ISSUER_URL:-http://localhost:8080} VERIFIER_URL=$${VERIFIER_URL:-http://localhost:8081} go run .
+
+examples-sd-jwt-node:
+	@echo "Running Node SD-JWT example..."
+	@[ -z "$$ALICE_DID" ] && echo "ALICE_DID is required. Generate via ./bin/keygen -did-only and export ALICE_DID" && exit 1 || true
+	@npm --prefix sdk-nodejs install
+	@ISSUER_URL=$${ISSUER_URL:-http://localhost:8080} VERIFIER_URL=$${VERIFIER_URL:-http://localhost:8081} node examples/sdk-nodejs/sd-jwt/index.js
