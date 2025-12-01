@@ -6,6 +6,7 @@ Issue, delegate, verify, and authorize W3C Verifiable Credentials (VCs) with DID
 A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation chains, enforcing tenant-scoped authorization policies, and translating trusted credentials into standard `Bearer` tokens for downstream services.
 
 ## Features at a Glance
+- **Standards Compliant:** W3C VC-JWT format with `typ: "vc+jwt"`, RFC 7638 JWK Thumbprints for key IDs, EdDSA (Ed25519) and ES256 (P-256) signing algorithms.
 - **Issuer (port 8080):** Issue root and delegated credentials, plus a one-time bootstrap endpoint for local admin setup.
 - **Verifier & Gateway (port 8081):** Verify credential chains, evaluate policies, and optionally mint synthetic JWTs.
 - **Sample API (port 8082):** A demo `/orders` endpoint protected by synthetic JWTs.
@@ -18,7 +19,23 @@ A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation 
 
 ## Key Concepts
 - **Decentralized Identifiers (DIDs):** Public-key based identifiers (`did:jwk`, `did:web`) resolved at verification time—no manual key exchange.
-- **Verifiable Credentials (VCs):** JWTs that carry issuer, subject, expiry, and arbitrary claims. Delegated VCs must tighten scope/TTL relative to parents.
+- **Verifiable Credentials (VCs):** W3C VC-JWT compliant credentials where JWT claims (`iss`, `sub`, `iat`, `exp`) are at the top level with the VC nested under a `vc` claim. Delegated VCs must tighten scope/TTL relative to parents.
+- **W3C VC-JWT Format:** Credentials follow the W3C VC-JWT specification with `typ: "vc+jwt"` header and proper payload structure:
+  ```json
+  {
+    "iss": "did:jwk:...",
+    "sub": "did:example:alice",
+    "iat": 1234567890,
+    "exp": 1234571490,
+    "vc": {
+      "@context": ["https://www.w3.org/2018/credentials/v1"],
+      "type": ["VerifiableCredential"],
+      "issuer": "did:jwk:...",
+      "credentialSubject": { "scope": "read:orders" }
+    }
+  }
+  ```
+- **RFC 7638 JWK Thumbprints:** Key identifiers (`kid`) are computed using RFC 7638 JWK Thumbprint for standards-compliant key identification.
 - **Gateway & Synthetic JWTs:** `/v1/gateway/authorize` returns an allow/deny decision and can mint a short-lived JWT so downstream services can keep using `Authorization: Bearer <token>`.
 - **Tenancy:** `X-Tenant-ID` header (or the default tenant in single-tenant mode) scopes trust registries and policies; Docker Compose runs in single-tenant mode by default.
 - **Policy Evaluation:** Requests are authorized against tenant policies using action/resource matching plus optional scope/claim conditions.
@@ -50,8 +67,10 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
        "claims": {"aud": "sample-api", "scope": "read:orders"}
      }' | jq -r '.credential')
 
-   # The response includes the signed VC:
-   # { "credential": "eyJhbGciOiJ..." }
+   # The response includes a W3C VC-JWT compliant signed credential with typ: "vc+jwt"
+   # JWT header: {"alg":"EdDSA","typ":"vc+jwt"}
+   # JWT payload has standard claims (iss, sub, iat, exp) at top level
+   # with the VC structure nested under the "vc" claim per W3C spec
    ```
 
 4. **Verify the credential through the verifier API (port 8081)**
