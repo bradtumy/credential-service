@@ -16,7 +16,7 @@ func TestVerifiableCredentialIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create signer: %v", err)
 	}
-	
+
 	// Wrap in adapter that implements crypto.Signer interface
 	signer := &signerAdapter{localSigner}
 
@@ -189,5 +189,5 @@ func (s *signerAdapter) Public() crypto.PublicKey {
 }
 
 func (s *signerAdapter) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	return s.localSigner.Sign(digest)
+	return s.localSigner.Sign(rand, digest, opts)
 }

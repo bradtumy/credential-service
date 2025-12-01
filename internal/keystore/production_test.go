@@ -1,9 +1,18 @@
 package keystore
 
 import (
+	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"testing"
+
+	kms "cloud.google.com/go/kms/apiv1"
+	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
+	cryptoImpl "github.com/bradtumy/credential-service/internal/crypto"
+	gax "github.com/googleapis/gax-go/v2"
 )
 
 func TestProductionKeyStore_BackendDetection(t *testing.T) {
@@ -216,6 +225,56 @@ func TestProductionKeyStore_CacheManagement(t *testing.T) {
 	}
 }
 
+func TestProductionKeyStore_KMSBackendUsesKMSSigner(t *testing.T) {
+	clearKMSEnv()
+
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	mock := &mockKMSClient{publicKey: pub}
+	cryptoImpl.NewKMSClient = func(ctx context.Context) (cryptoImpl.KMSClient, error) {
+		return mock, nil
+	}
+	defer func() {
+		cryptoImpl.NewKMSClient = func(ctx context.Context) (cryptoImpl.KMSClient, error) {
+			return kms.NewKeyManagementClient(ctx)
+		}
+	}()
+
+	os.Setenv("ENABLE_KMS", "true")
+	os.Setenv("GCP_PROJECT", "test-project")
+	os.Setenv("KMS_KEYRING", "ring")
+	os.Setenv("KMS_KEY_ID", "key")
+	os.Setenv("KMS_LOCATION", "global")
+	defer clearKMSEnv()
+
+	store, err := NewProductionKeyStore(ProductionConfig{Backend: BackendGoogleKMS, TenantPrefix: "tenant-"})
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	signer, err := store.GetSigningKey("abc")
+	if err != nil {
+		t.Fatalf("failed to get kms signing key: %v", err)
+	}
+
+	kmsSigner, ok := signer.(*cryptoImpl.KMSSigner)
+	if !ok {
+		t.Fatalf("expected KMSSigner, got %T", signer)
+	}
+
+	expectedKeyName := "projects/test-project/locations/global/keyRings/ring/cryptoKeys/key-tenant-abc/cryptoKeyVersions/1"
+	if mock.lastGetPublicName != expectedKeyName {
+		t.Fatalf("unexpected key name, got %s want %s", mock.lastGetPublicName, expectedKeyName)
+	}
+
+	if kmsSigner.Public() == nil {
+		t.Fatal("expected public key to be populated")
+	}
+}
+
 func TestProductionKeyStore_EmptyTenantID(t *testing.T) {
 	clearKMSEnv()
 
@@ -242,4 +301,26 @@ func clearKMSEnv() {
 	for _, v := range vars {
 		os.Unsetenv(v)
 	}
+}
+
+type mockKMSClient struct {
+	publicKey         ed25519.PublicKey
+	lastGetPublicName string
+}
+
+func (m *mockKMSClient) GetPublicKey(ctx context.Context, req *kmspb.GetPublicKeyRequest, _ ...gax.CallOption) (*kmspb.PublicKey, error) {
+	_ = ctx
+	m.lastGetPublicName = req.GetName()
+	der, err := x509.MarshalPKIXPublicKey(m.publicKey)
+	if err != nil {
+		return nil, err
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	return &kmspb.PublicKey{Pem: string(pemBytes)}, nil
+}
+
+func (m *mockKMSClient) AsymmetricSign(ctx context.Context, req *kmspb.AsymmetricSignRequest, _ ...gax.CallOption) (*kmspb.AsymmetricSignResponse, error) {
+	_ = ctx
+	_ = req
+	return &kmspb.AsymmetricSignResponse{Signature: []byte("mock-signature")}, nil
 }

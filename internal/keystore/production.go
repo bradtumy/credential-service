@@ -134,10 +134,38 @@ func (p *ProductionKeyStore) getVaultKey(ctx context.Context, keyName string) (c
 }
 
 func (p *ProductionKeyStore) getGCPKMSKey(ctx context.Context, keyName string) (crypto.Signer, error) {
-	// TODO: Implement proper GCP KMS integration
-	// For now, fall back to memory store since KMSSigner doesn't implement crypto.Signer correctly
-	log.Printf("GCP KMS integration not yet complete for key %s, falling back to memory store", keyName)
-	return p.fallbackKS.GetSigningKey(keyName)
+	projectID := os.Getenv("GCP_PROJECT")
+	if projectID == "" {
+		return nil, fmt.Errorf("GCP_PROJECT is required for KMS backend")
+	}
+	location := os.Getenv("KMS_LOCATION")
+	if location == "" {
+		location = "global"
+	}
+	keyRing := os.Getenv("KMS_KEYRING")
+	if keyRing == "" {
+		return nil, fmt.Errorf("KMS_KEYRING is required for KMS backend")
+	}
+
+	baseKeyID := os.Getenv("KMS_KEY_ID")
+	if baseKeyID == "" {
+		return nil, fmt.Errorf("KMS_KEY_ID is required for KMS backend")
+	}
+
+	cryptoKey := fmt.Sprintf("%s-%s", baseKeyID, keyName)
+	version := os.Getenv("KMS_KEY_VERSION")
+	if version == "" {
+		version = "1"
+	}
+
+	keyResource := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%s", projectID, location, keyRing, cryptoKey, version)
+
+	signer, err := cryptoImpl.NewKMSSignerWithKeyID(ctx, keyResource)
+	if err != nil {
+		return nil, fmt.Errorf("kms signer: %w", err)
+	}
+
+	return signer, nil
 }
 
 func (p *ProductionKeyStore) validateBackend() error {
@@ -189,7 +217,7 @@ func detectBackend() KeyBackend {
 	}
 
 	// Check for Google Cloud KMS
-	if (os.Getenv("ENABLE_KMS") == "true" || os.Getenv("KMS_ENABLE") == "true") {
+	if os.Getenv("ENABLE_KMS") == "true" || os.Getenv("KMS_ENABLE") == "true" {
 		return BackendGoogleKMS
 	}
 
