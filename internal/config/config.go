@@ -1,8 +1,10 @@
 package config
 
 import (
-	"os"
-	"strconv"
+        "os"
+        "strconv"
+
+        "github.com/bradtumy/credential-service/internal/policy"
 )
 
 // Config holds application configuration loaded from environment variables.
@@ -40,20 +42,24 @@ func getenv(key, fallback string) string {
 
 // IssuerConfig holds configuration for the issuer service.
 type IssuerConfig struct {
-	HTTPPort        string
-	DefaultTenantID string
-	TenancyMode     string
-	LogLevel        string
+        HTTPPort        string
+        DefaultTenantID string
+        TenancyMode     string
+        LogLevel        string
+        AuditDB_DSN     string
+        Policy          policy.IssuancePolicy
 }
 
 // LoadIssuerConfigFromEnv loads issuer configuration from environment variables.
 func LoadIssuerConfigFromEnv() IssuerConfig {
-	return IssuerConfig{
-		HTTPPort:        getenv("ISSUER_HTTP_PORT", "8080"),
-		DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
-		TenancyMode:     getenv("TENANCY_MODE", "single"),
-		LogLevel:        getenv("ISSUER_LOG_LEVEL", "info"),
-	}
+        return IssuerConfig{
+                HTTPPort:        getenv("ISSUER_HTTP_PORT", "8080"),
+                DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
+                TenancyMode:     getenv("TENANCY_MODE", "single"),
+                LogLevel:        getenv("ISSUER_LOG_LEVEL", "info"),
+                AuditDB_DSN:     getenv("ISSUER_AUDIT_DB_DSN", ""),
+                Policy:          policy.LoadIssuancePolicyFromEnv(),
+        }
 }
 
 // VerifierConfig holds configuration for the verifier service.

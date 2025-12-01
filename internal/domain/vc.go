@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -27,24 +28,28 @@ type VerifiableCredential struct {
 	ExpirationDate    string                 `json:"expirationDate,omitempty"`
 	CredentialSubject map[string]interface{} `json:"credentialSubject"`
 	Proof             *Proof                 `json:"proof,omitempty"`
-	
+
 	// JWT Standard Claims (when used as JWT)
-	JTI               string    `json:"jti,omitempty"`   // JWT ID (maps to ID)
-	ISS               string    `json:"iss,omitempty"`   // Issuer (maps to issuer)
-	SUB               string    `json:"sub,omitempty"`   // Subject 
-	IAT               int64     `json:"iat,omitempty"`   // Issued At (Unix timestamp)
-	EXP               int64     `json:"exp,omitempty"`   // Expires At (Unix timestamp)
-	NBF               int64     `json:"nbf,omitempty"`   // Not Before (Unix timestamp)
-	
+	JTI string `json:"jti,omitempty"` // JWT ID (maps to ID)
+	ISS string `json:"iss,omitempty"` // Issuer (maps to issuer)
+	SUB string `json:"sub,omitempty"` // Subject
+	IAT int64  `json:"iat,omitempty"` // Issued At (Unix timestamp)
+	EXP int64  `json:"exp,omitempty"` // Expires At (Unix timestamp)
+	NBF int64  `json:"nbf,omitempty"` // Not Before (Unix timestamp)
+
 	// Extension Fields for delegation and authorization
-	Scope             []string               `json:"scope,omitempty"`           // Authorized scopes
-	DelegationChain   []string               `json:"delegation_chain,omitempty"` // Chain of delegating entities
-	
+	Scope           []string `json:"scope,omitempty"`            // Authorized scopes
+	DelegationChain []string `json:"delegation_chain,omitempty"` // Chain of delegating entities
+	// Selective disclosure fields (SD-JWT)
+	Format      string   `json:"format,omitempty"`
+	SDDigests   []string `json:"_sd,omitempty"`
+	SDDigestAlg string   `json:"_sd_alg,omitempty"`
+
 	// Backward compatibility fields (deprecated but maintained for existing code)
-	Claims            map[string]interface{} `json:"claims,omitempty"`          // Legacy claims field
-	Subject           string                 `json:"subject,omitempty"`         // Legacy subject field (use SUB instead)
-	IssuedAt          time.Time              `json:"issued_at,omitempty"`       // Legacy field (use IAT instead)
-	ExpiresAt         time.Time              `json:"expires_at,omitempty"`      // Legacy field (use EXP instead)
+	Claims    map[string]interface{} `json:"claims,omitempty"`     // Legacy claims field
+	Subject   string                 `json:"subject,omitempty"`    // Legacy subject field (use SUB instead)
+	IssuedAt  time.Time              `json:"issued_at,omitempty"`  // Legacy field (use IAT instead)
+	ExpiresAt time.Time              `json:"expires_at,omitempty"` // Legacy field (use EXP instead)
 }
 
 // Proof structure for digital signature.
@@ -109,7 +114,7 @@ func BuildCredential(id, issuer string, issuanceDate, expirationDate string, sub
 	if err := ValidateCredentialSubject(subject); err != nil {
 		return VerifiableCredential{}, err
 	}
-	
+
 	// Parse and validate dates
 	if _, err := time.Parse(time.RFC3339, issuanceDate); err != nil {
 		return VerifiableCredential{}, NewFieldValidationError("issuanceDate", "must be RFC3339 format")
@@ -119,7 +124,7 @@ func BuildCredential(id, issuer string, issuanceDate, expirationDate string, sub
 			return VerifiableCredential{}, NewFieldValidationError("expirationDate", "must be RFC3339 format")
 		}
 	}
-	
+
 	return VerifiableCredential{
 		Context:           []string{"https://www.w3.org/2018/credentials/v1"},
 		Type:              []string{"VerifiableCredential"},
@@ -188,7 +193,7 @@ func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, tt
 	issuedAt := time.Now().UTC()
 	expiresAt := issuedAt.Add(ttl)
 	credentialID := uuid.NewString()
-	
+
 	// Create W3C-compliant VC with proper JWT claims
 	vc := VerifiableCredential{
 		// W3C Fields
@@ -199,20 +204,20 @@ func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, tt
 		IssuanceDate:      issuedAt.Format(time.RFC3339),
 		ExpirationDate:    expiresAt.Format(time.RFC3339),
 		CredentialSubject: claims,
-		
+
 		// JWT Claims
-		JTI:               credentialID,
-		ISS:               issuerDID,
-		SUB:               subjectDID,
-		IAT:               issuedAt.Unix(),
-		EXP:               expiresAt.Unix(),
-		NBF:               issuedAt.Unix(),
-		
+		JTI: credentialID,
+		ISS: issuerDID,
+		SUB: subjectDID,
+		IAT: issuedAt.Unix(),
+		EXP: expiresAt.Unix(),
+		NBF: issuedAt.Unix(),
+
 		// Backward compatibility (populate legacy fields)
-		Subject:           subjectDID,
-		Claims:            claims,
-		IssuedAt:          issuedAt,
-		ExpiresAt:         expiresAt,
+		Subject:   subjectDID,
+		Claims:    claims,
+		IssuedAt:  issuedAt,
+		ExpiresAt: expiresAt,
 	}
 
 	header := map[string]string{
@@ -239,6 +244,112 @@ func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, tt
 	signatureSegment := base64.RawURLEncoding.EncodeToString(signature)
 
 	return signingInput + "." + signatureSegment, nil
+}
+
+// SDJWT represents an issued selective-disclosure credential.
+type SDJWT struct {
+	Token       string   `json:"token"`
+	Disclosures []string `json:"disclosures"`
+}
+
+// IssueSDJWTCredential issues an SD-JWT with salted digests for each claim.
+func IssueSDJWTCredential(issuerDID, subjectDID string, signer crypto.Signer, ttl time.Duration, claims map[string]interface{}) (*SDJWT, error) {
+	if claims == nil {
+		claims = map[string]interface{}{}
+	}
+
+	// Build digests
+	disclosures := make([]string, 0, len(claims))
+	digests := make([]string, 0, len(claims))
+	for key, value := range claims {
+		disclosure, digest, err := buildDisclosure(key, value)
+		if err != nil {
+			return nil, fmt.Errorf("build disclosure: %w", err)
+		}
+		disclosures = append(disclosures, disclosure)
+		digests = append(digests, digest)
+	}
+
+	sdClaims := map[string]interface{}{
+		"_sd":     digests,
+		"_sd_alg": "sha256",
+	}
+
+	token, err := IssueBasicCredentialWithFormat(issuerDID, subjectDID, signer, ttl, sdClaims, "sd-jwt")
+	if err != nil {
+		return nil, err
+	}
+
+	return &SDJWT{Token: token, Disclosures: disclosures}, nil
+}
+
+// IssueBasicCredentialWithFormat mirrors IssueBasicCredential but annotates the VC format.
+func IssueBasicCredentialWithFormat(issuerDID, subjectDID string, signer crypto.Signer, ttl time.Duration, claims map[string]interface{}, format string) (string, error) {
+	if claims == nil {
+		claims = map[string]interface{}{}
+	}
+
+	token, err := IssueBasicCredential(issuerDID, subjectDID, signer, ttl, claims)
+	if err != nil {
+		return "", err
+	}
+
+	// Rebuild payload with format annotation
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return token, nil
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return token, nil
+	}
+
+	var credential VerifiableCredential
+	if err := json.Unmarshal(payloadBytes, &credential); err != nil {
+		return token, nil
+	}
+
+	credential.Format = format
+
+	newPayload, err := encodeSegment(credential)
+	if err != nil {
+		return token, nil
+	}
+
+	signingInput := parts[0] + "." + newPayload
+	signature, err := signer.Sign(rand.Reader, []byte(signingInput), crypto.Hash(0))
+	if err != nil {
+		return "", fmt.Errorf("sign payload: %w", err)
+	}
+
+	parts[1] = newPayload
+	parts[2] = base64.RawURLEncoding.EncodeToString(signature)
+	return strings.Join(parts, "."), nil
+}
+
+func buildDisclosure(key string, value interface{}) (string, string, error) {
+	saltBytes := make([]byte, 12)
+	if _, err := rand.Read(saltBytes); err != nil {
+		return "", "", fmt.Errorf("generate salt: %w", err)
+	}
+	salt := base64.RawURLEncoding.EncodeToString(saltBytes)
+
+	disclosureArray := []interface{}{salt, key, value}
+	disclosureBytes, err := json.Marshal(disclosureArray)
+	if err != nil {
+		return "", "", fmt.Errorf("marshal disclosure: %w", err)
+	}
+
+	disclosure := base64.RawURLEncoding.EncodeToString(disclosureBytes)
+	digest := computeDisclosureDigest(disclosureBytes)
+
+	return disclosure, digest, nil
+}
+
+func computeDisclosureDigest(disclosure []byte) string {
+	h := sha256.Sum256(disclosure)
+	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
 func encodeSegment(data interface{}) (string, error) {
@@ -294,23 +405,23 @@ func ValidateDID(did string) error {
 	if !strings.HasPrefix(did, "did:") {
 		return NewValidationError("DID must start with 'did:'")
 	}
-	
+
 	// Basic format: did:method:method-specific-id
 	parts := strings.SplitN(did, ":", 3)
 	if len(parts) < 3 {
 		return NewValidationError("DID must have format 'did:method:method-specific-id'")
 	}
-	
+
 	method := parts[1]
 	if method == "" {
 		return NewValidationError("DID method cannot be empty")
 	}
-	
+
 	methodSpecificID := parts[2]
 	if methodSpecificID == "" {
 		return NewValidationError("DID method-specific-id cannot be empty")
 	}
-	
+
 	return nil
 }
 

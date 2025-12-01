@@ -33,7 +33,7 @@ func TestDelegationIntegration(t *testing.T) {
 
 	// Issuer server
 	issuerMux := http.NewServeMux()
-	httpx.RegisterIssuerRoutes(issuerMux, store, issuerCfg)
+	httpx.RegisterIssuerRoutes(issuerMux, store, issuerCfg, nil)
 	issuerServer := httptest.NewServer(issuerMux)
 	t.Cleanup(issuerServer.Close)
 

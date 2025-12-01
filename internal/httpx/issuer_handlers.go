@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/keystore"
 	"github.com/bradtumy/credential-service/internal/logging"
+	"github.com/bradtumy/credential-service/internal/storage"
 	"github.com/bradtumy/credential-service/internal/version"
 )
 
@@ -19,12 +21,15 @@ type IssueRequest struct {
 	SubjectDID string                 `json:"subject_did"`
 	TTLSeconds int64                  `json:"ttl_seconds"`
 	Claims     map[string]interface{} `json:"claims"`
+	Format     string                 `json:"format"`
 }
 
 // IssueResponse represents the response payload after issuance.
 type IssueResponse struct {
-	Credential string `json:"credential"`
-	APIVersion string `json:"api_version"`
+	Credential  string   `json:"credential"`
+	Disclosures []string `json:"disclosures,omitempty"`
+	Format      string   `json:"format,omitempty"`
+	APIVersion  string   `json:"api_version"`
 }
 
 // DelegateRequest represents the payload for issuing delegated credentials.
@@ -36,7 +41,7 @@ type DelegateRequest struct {
 }
 
 // RegisterIssuerRoutes wires issuer HTTP routes into the provided mux.
-func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg config.IssuerConfig) {
+func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg config.IssuerConfig, auditStore storage.AuditStore) {
 	mux.HandleFunc("/v1/credentials/issue", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST method is allowed")
@@ -55,14 +60,21 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 			return
 		}
 
-		// Validate TTL
+		// Validate TTL with policy-aware maximum
 		ttl := time.Duration(req.TTLSeconds) * time.Second
 		if ttl <= 0 {
 			WriteValidationError(w, domain.NewFieldValidationError("ttl_seconds", "must be positive"))
 			return
 		}
-		if ttl > 24*time.Hour {
-			WriteValidationError(w, domain.NewFieldValidationError("ttl_seconds", "cannot exceed 24 hours"))
+		maxTTL := 24 * time.Hour
+		if cfg.Policy.MaxTTLSeconds > 0 {
+			policyLimit := time.Duration(cfg.Policy.MaxTTLSeconds) * time.Second
+			if policyLimit < maxTTL {
+				maxTTL = policyLimit
+			}
+		}
+		if ttl > maxTTL {
+			WriteValidationError(w, domain.NewFieldValidationError("ttl_seconds", "exceeds policy limit"))
 			return
 		}
 
@@ -72,14 +84,25 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 				WriteValidationError(w, err)
 				return
 			}
+		} else {
+			req.Claims = map[string]interface{}{}
+		}
+		if err := cfg.Policy.ValidateRequest(req.TTLSeconds, req.Claims); err != nil {
+			WriteAPIError(w, http.StatusBadRequest, "policy_violation", err.Error())
+			return
 		}
 
-                tenantID := TenantIDFromContext(r.Context())
-                if tenantID == "" {
-                        tenantID = cfg.DefaultTenantID
-                }
+		format := req.Format
+		if format == "" {
+			format = "jwt-vc"
+		}
 
-                signer, err := store.GetSigningKey(tenantID)
+		tenantID := TenantIDFromContext(r.Context())
+		if tenantID == "" {
+			tenantID = cfg.DefaultTenantID
+		}
+
+		signer, err := store.GetSigningKey(tenantID)
 		if err != nil {
 			WriteAPIError(w, http.StatusInternalServerError, "keystore_error", err.Error())
 			return
@@ -91,25 +114,57 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 			return
 		}
 
-		token, err := domain.IssueBasicCredential(issuerDID, req.SubjectDID, signer, ttl, req.Claims)
-		if err != nil {
-			// Log failed credential issuance
-			logging.LogCredentialEvent(r.Context(), logging.AuditEventCredentialIssued, req.SubjectDID, issuerDID, "failure")
-			
-			var validationErr domain.ValidationError
-			if errors.As(err, &validationErr) {
-				WriteValidationError(w, err)
-			} else {
-				WriteInternalError(w, "Failed to issue credential")
+		var (
+			token       string
+			disclosures []string
+		)
+
+		if format == "sd-jwt" {
+			sdjwt, err := domain.IssueSDJWTCredential(issuerDID, req.SubjectDID, signer, ttl, req.Claims)
+			if err != nil {
+				logging.LogCredentialEvent(r.Context(), logging.AuditEventCredentialIssued, req.SubjectDID, issuerDID, "failure")
+				WriteInternalError(w, "Failed to issue SD-JWT credential")
+				return
 			}
-			return
+			token = sdjwt.Token
+			disclosures = sdjwt.Disclosures
+		} else {
+			issuedToken, err := domain.IssueBasicCredentialWithFormat(issuerDID, req.SubjectDID, signer, ttl, req.Claims, format)
+			if err != nil {
+				// Log failed credential issuance
+				logging.LogCredentialEvent(r.Context(), logging.AuditEventCredentialIssued, req.SubjectDID, issuerDID, "failure")
+
+				var validationErr domain.ValidationError
+				if errors.As(err, &validationErr) {
+					WriteValidationError(w, err)
+				} else {
+					WriteInternalError(w, "Failed to issue credential")
+				}
+				return
+			}
+			token = issuedToken
 		}
 
-		// Log successful credential issuance
-		logging.LogCredentialEvent(r.Context(), logging.AuditEventCredentialIssued, req.SubjectDID, issuerDID, "success")
+		auditEvent := logging.AuditEvent{
+			EventType:  logging.AuditEventCredentialIssued,
+			SubjectDID: req.SubjectDID,
+			IssuerDID:  issuerDID,
+			Outcome:    "success",
+			Metadata: map[string]interface{}{
+				"format":                 format,
+				"ttl_seconds":            req.TTLSeconds,
+				"claims_keys":            claimKeys(req.Claims),
+				"policy_max_ttl_seconds": cfg.Policy.MaxTTLSeconds,
+			},
+		}
+		auditEvent.Timestamp = time.Now().UTC()
+		if auditStore != nil {
+			_ = auditStore.InsertAuditEvent(r.Context(), auditEvent)
+		}
+		logging.LogAuditEvent(r.Context(), auditEvent)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token, APIVersion: version.APIVersion})
+		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token, Disclosures: disclosures, Format: format, APIVersion: version.APIVersion})
 	})
 
 	mux.HandleFunc("/v1/credentials/delegate", func(w http.ResponseWriter, r *http.Request) {
@@ -149,12 +204,12 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 			return
 		}
 
-                tenantID := TenantIDFromContext(r.Context())
-                if tenantID == "" {
-                        tenantID = cfg.DefaultTenantID
-                }
+		tenantID := TenantIDFromContext(r.Context())
+		if tenantID == "" {
+			tenantID = cfg.DefaultTenantID
+		}
 
-                signer, err := store.GetSigningKey(tenantID)
+		signer, err := store.GetSigningKey(tenantID)
 		if err != nil {
 			WriteAPIError(w, http.StatusInternalServerError, "keystore_error", err.Error())
 			return
@@ -208,7 +263,12 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 			claims["aud"] = aud
 		}
 
-		token, err := domain.IssueBasicCredential(issuerDID, req.DelegateDID, signer, ttl, claims)
+		if err := cfg.Policy.ValidateRequest(req.TTLSeconds, claims); err != nil {
+			WriteAPIError(w, http.StatusBadRequest, "policy_violation", err.Error())
+			return
+		}
+
+		token, err := domain.IssueBasicCredentialWithFormat(issuerDID, req.DelegateDID, signer, ttl, claims, "jwt-vc")
 		if err != nil {
 			// Log failed delegation
 			logging.LogAuditEvent(r.Context(), logging.AuditEvent{
@@ -217,8 +277,8 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 				IssuerDID:  issuerDID,
 				Outcome:    "failure",
 				Metadata: map[string]interface{}{
-					"scope":     req.Scope,
-					"parent_id": parentCred.ID,
+					"scope":       req.Scope,
+					"parent_id":   parentCred.ID,
 					"ttl_seconds": req.TTLSeconds,
 				},
 			})
@@ -227,19 +287,34 @@ func RegisterIssuerRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg confi
 		}
 
 		// Log successful delegation
-		logging.LogAuditEvent(r.Context(), logging.AuditEvent{
+		event := logging.AuditEvent{
 			EventType:  logging.AuditEventDelegationCreated,
 			SubjectDID: req.DelegateDID,
 			IssuerDID:  issuerDID,
 			Outcome:    "success",
 			Metadata: map[string]interface{}{
-				"scope":     req.Scope,
-				"parent_id": parentCred.ID,
+				"scope":       req.Scope,
+				"parent_id":   parentCred.ID,
 				"ttl_seconds": req.TTLSeconds,
+				"format":      "jwt-vc",
 			},
-		})
+		}
+		event.Timestamp = time.Now().UTC()
+		if auditStore != nil {
+			_ = auditStore.InsertAuditEvent(r.Context(), event)
+		}
+		logging.LogAuditEvent(r.Context(), event)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(IssueResponse{Credential: token, APIVersion: version.APIVersion})
 	})
+}
+
+func claimKeys(claims map[string]interface{}) []string {
+	keys := make([]string, 0, len(claims))
+	for k := range claims {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

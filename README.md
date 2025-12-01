@@ -135,9 +135,19 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for module layout, [TENANCY.md](TENANCY.m
   const decision = await client.gatewayAuthorize({ credential: issued.credential, want_synthetic_jwt: true })
   ```
 
+## SD-JWT and issuance policies
+- **Selective Disclosure:** Request `format: "sd-jwt"` when issuing to receive a signed SD-JWT plus disclosure list. Example:
+  ```bash
+  curl -sX POST http://localhost:8080/v1/credentials/issue \
+    -d '{"subject_did":"did:example:alice","ttl_seconds":600,"claims":{"email":"alice@example.com","scope":["read"]},"format":"sd-jwt"}'
+  ```
+  Verify by POSTing the SD-JWT, `format: "sd-jwt"`, and `disclosures` back to `/v1/credentials/verify`.
+- **Issuance policy:** The issuer enforces `ISSUER_POLICY_MAX_TTL_SECONDS`, `ISSUER_POLICY_ALLOWED_SCOPES`, and `ISSUER_POLICY_REQUIRED_CLAIMS` during issuance/delegation to prevent over-broad credentials.
+- **Audit storage:** When `ISSUER_AUDIT_DB_DSN` is set the issuer persists audit rows to Postgres in addition to structured logs whenever credentials are minted.
+
 ## Roadmap / Current Status
-- **Implemented:** Issuance and delegation endpoints, DID-based verification, gateway authorization with synthetic JWT minting, seeded trust registry for local runs, tenant-scoped policy engine with Postgres or in-memory stores, health/readiness probes, optional Prometheus metrics and Redis-backed caching/rate-limiting.
-- **Upcoming (see [ROADMAP.md](ROADMAP.md)):** SD-JWT support, richer issuance policies and audit trails, deeper KMS/Vault integrations, and expanded integration/e2e testing.
+- **Implemented:** Issuance/delegation endpoints, SD-JWT issuance and verification alongside JWT VCs, policy-guarded TTL/scope/claim validation, audit trails with optional Postgres persistence, DID-based verification, gateway authorization with synthetic JWT minting, seeded trust registry for local runs, tenant-scoped policy engine with Postgres or in-memory stores, health/readiness probes, optional Prometheus metrics and Redis-backed caching/rate-limiting.
+- **Upcoming (see [ROADMAP.md](ROADMAP.md)):** Deeper KMS/Vault integrations and expanded integration/e2e testing.
 
 ## Contributing
 1. Create a feature branch: `git checkout -b feature/your-change`.
