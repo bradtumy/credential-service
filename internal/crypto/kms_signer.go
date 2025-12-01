@@ -12,10 +12,12 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	kms "cloud.google.com/go/kms/apiv1"
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
+	gax "github.com/googleapis/gax-go/v2"
 )
 
 // ErrKMSSigningDisabled is returned when KMS is turned off via env vars.
@@ -23,11 +25,23 @@ var ErrKMSSigningDisabled = errors.New("kms signing disabled")
 
 // KMSSigner implements Signer backed by Google Cloud KMS asymmetric keys.
 type KMSSigner struct {
-	client *kms.KeyManagementClient
+	client KMSClient
 	keyID  string
 	jwk    []byte
 	alg    string
 	kid    string
+	pubKey crypto.PublicKey
+}
+
+// KMSClient defines the subset of KMS client methods used by KMSSigner.
+type KMSClient interface {
+	GetPublicKey(context.Context, *kmspb.GetPublicKeyRequest, ...gax.CallOption) (*kmspb.PublicKey, error)
+	AsymmetricSign(context.Context, *kmspb.AsymmetricSignRequest, ...gax.CallOption) (*kmspb.AsymmetricSignResponse, error)
+}
+
+// NewKMSClient allows injection in tests.
+var NewKMSClient = func(ctx context.Context) (KMSClient, error) {
+	return kms.NewKeyManagementClient(ctx)
 }
 
 // NewKMSSignerFromEnv builds a signer if ENABLE_KMS/KMS_ENABLE is true.
@@ -40,9 +54,29 @@ func NewKMSSignerFromEnv(ctx context.Context) (*KMSSigner, error) {
 	if keyID == "" {
 		return nil, fmt.Errorf("KMS_KEY_ID is required when KMS is enabled")
 	}
-	client, err := kms.NewKeyManagementClient(ctx)
+	client, err := NewKMSClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("kms client: %w", err)
+	}
+
+	return newKMSSigner(ctx, client, keyID)
+}
+
+// NewKMSSignerWithKeyID creates a signer for the provided key resource.
+func NewKMSSignerWithKeyID(ctx context.Context, keyID string) (*KMSSigner, error) {
+	client, err := NewKMSClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kms client: %w", err)
+	}
+	return newKMSSigner(ctx, client, keyID)
+}
+
+func newKMSSigner(ctx context.Context, client KMSClient, keyID string) (*KMSSigner, error) {
+	if client == nil {
+		return nil, fmt.Errorf("kms client is nil")
+	}
+	if keyID == "" {
+		return nil, fmt.Errorf("kms key id is required")
 	}
 
 	resp, err := client.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: keyID})
@@ -68,7 +102,7 @@ func NewKMSSignerFromEnv(ctx context.Context) (*KMSSigner, error) {
 		return nil, err
 	}
 
-	return &KMSSigner{client: client, keyID: keyID, jwk: jwk, alg: alg, kid: kid}, nil
+	return &KMSSigner{client: client, keyID: keyID, jwk: jwk, alg: alg, kid: kid, pubKey: pubKey}, nil
 }
 
 func jwkFromPublicKey(pub crypto.PublicKey) ([]byte, string, error) {
@@ -102,7 +136,7 @@ func jwkFromPublicKey(pub crypto.PublicKey) ([]byte, string, error) {
 func (k *KMSSigner) PublicJWK() ([]byte, error) { return append([]byte{}, k.jwk...), nil }
 
 // Sign delegates signing to Google Cloud KMS using the appropriate signing call.
-func (k *KMSSigner) Sign(payload []byte) ([]byte, error) {
+func (k *KMSSigner) Sign(_ io.Reader, payload []byte, opts crypto.SignerOpts) ([]byte, error) {
 	if k == nil || k.client == nil {
 		return nil, fmt.Errorf("kms signer not configured")
 	}
@@ -112,6 +146,10 @@ func (k *KMSSigner) Sign(payload []byte) ([]byte, error) {
 	case "EdDSA":
 		req.Data = payload
 	case "ES256":
+		if opts != nil && opts.HashFunc() == crypto.SHA256 && len(payload) == sha256.Size {
+			req.Digest = &kmspb.Digest{Digest: &kmspb.Digest_Sha256{Sha256: payload}}
+			break
+		}
 		digest := sha256.Sum256(payload)
 		req.Digest = &kmspb.Digest{Digest: &kmspb.Digest_Sha256{Sha256: digest[:]}}
 	default:
@@ -133,3 +171,6 @@ func (k *KMSSigner) KeyID() string { return k.kid }
 
 // ValidityWindow is empty for KMS backed keys.
 func (k *KMSSigner) ValidityWindow() (string, string) { return "", "" }
+
+// Public returns the cached public key.
+func (k *KMSSigner) Public() crypto.PublicKey { return k.pubKey }

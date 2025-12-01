@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -166,11 +167,14 @@ func finalizeKey(signer crypto.Signer) (crypto.Signer, []byte, string, error) {
 }
 
 // Sign signs payload bytes. For ECDSA keys SHA-256 is applied before signing.
-func (l *LocalSigner) Sign(payload []byte) ([]byte, error) {
+func (l *LocalSigner) Sign(_ io.Reader, payload []byte, opts crypto.SignerOpts) ([]byte, error) {
 	switch key := l.key.(type) {
 	case ed25519.PrivateKey:
 		return key.Sign(rand.Reader, payload, crypto.Hash(0))
 	case *ecdsa.PrivateKey:
+		if opts != nil && opts.HashFunc() == crypto.SHA256 && len(payload) == sha256.Size {
+			return key.Sign(rand.Reader, payload, crypto.SHA256)
+		}
 		digest := sha256.Sum256(payload)
 		return key.Sign(rand.Reader, digest[:], crypto.SHA256)
 	default:
@@ -189,6 +193,9 @@ func (l *LocalSigner) KeyID() string { return l.kid }
 
 // PublicKey returns the underlying public key.
 func (l *LocalSigner) PublicKey() crypto.PublicKey { return l.key.Public() }
+
+// Public satisfies the crypto.Signer interface.
+func (l *LocalSigner) Public() crypto.PublicKey { return l.PublicKey() }
 
 // ValidityWindow returns metadata derived from file timestamps.
 func (l *LocalSigner) ValidityWindow() (string, string) {
