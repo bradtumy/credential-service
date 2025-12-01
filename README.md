@@ -4,6 +4,10 @@ Issue, delegate, verify, and authorize W3C Verifiable Credentials (VCs) with DID
 
 ## Architecture
 
+### Centralized Deployment (Enterprise)
+
+Suitable for single-organization deployments where issuer and verifier share infrastructure:
+
 ```
 ┌─────────────┐         ┌──────────────┐         ┌─────────────┐
 │   Issuer    │         │  Verifier    │         │   Gateway   │
@@ -27,7 +31,55 @@ Issue, delegate, verify, and authorize W3C Verifiable Credentials (VCs) with DID
                           └───────────┘         └──────────┘
 ```
 
-**Flow**: Issuer generates credentials with `did:jwk` identifiers → Verifier checks trust registry + resolves DIDs + evaluates policies → Gateway caches decisions + enforces rate limits
+**Use Case**: Single enterprise, shared database, centralized trust management
+
+---
+
+### Distributed Deployment (Decentralized)
+
+Suitable for multi-organization or cross-domain scenarios using DID resolution:
+
+```
+┌─────────────────────────────────┐     ┌─────────────────────────────────┐
+│      Organization A             │     │      Organization B             │
+│                                 │     │                                 │
+│  ┌─────────────┐  ┌──────────┐ │     │  ┌──────────────┐  ┌──────────┐│
+│  │   Issuer    │  │Postgres A││     │  │  Verifier    │  │Postgres B││
+│  │   :8080     │  │  :5432   ││     │  │   :8081      │  │  :5432   ││
+│  │             │  │          ││     │  │              │  │          ││
+│  │ - Issue VCs │  │- Tenants ││     │  │ - Trust Reg  │  │- Tenants ││
+│  │ - DID: A    │  │- Keys    ││     │  │ - Policies   │  │- Policies││
+│  └─────────────┘  └──────────┘ │     │  │ - DID: B     │  │- Trust   ││
+│         │                       │     │  └──────────────┘  └──────────┘│
+│         │                       │     │         ▲                       │
+└─────────┼───────────────────────┘     └─────────┼───────────────────────┘
+          │                                       │
+          │  VC Issued                           │ Verification
+          │  (signed with did:jwk:A)             │ Request
+          │                                       │
+          └──────────────────────────────────────┘
+                                  │
+                    ┌─────────────▼─────────────┐
+                    │   DID Resolution Layer    │
+                    │                           │
+                    │ - did:jwk  (self-signed)  │
+                    │ - did:web  (DNS-hosted)   │
+                    │                           │
+                    │ No pre-shared keys needed │
+                    └───────────────────────────┘
+```
+
+**Key Differences**:
+- **No Shared Database**: Each organization maintains its own Postgres instance
+- **DID Resolution**: Verifier fetches public keys by resolving issuer's DID (e.g., `did:jwk:...` or `did:web:orgA.com`)
+- **Distributed Trust**: Verifier maintains local trust registry listing trusted issuer DIDs
+- **No Pre-Configuration**: Organizations don't exchange keys in advance—DIDs are resolved at verification time
+
+**Use Case**: Multi-org federation, supply chain, cross-domain identity, zero-trust networks
+
+---
+
+**Flow**: Issuer generates credentials with `did:jwk` or `did:web` identifiers → Verifier resolves DID to public key → checks trust registry → evaluates policies → Gateway caches decisions
 
 ## What this project is
 A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation chains, enforcing tenant-scoped authorization policies, and translating trusted credentials into standard `Bearer` tokens for downstream services.
