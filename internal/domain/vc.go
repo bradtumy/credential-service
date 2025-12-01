@@ -222,7 +222,7 @@ func IssueBasicCredential(issuerDID, subjectDID string, signer crypto.Signer, tt
 
 	header := map[string]string{
 		"alg": "EdDSA",
-		"typ": "JWT",
+		"typ": "vc+jwt", // W3C VC-JWT specification requires vc+jwt type
 	}
 
 	headerSegment, err := encodeSegment(header)
