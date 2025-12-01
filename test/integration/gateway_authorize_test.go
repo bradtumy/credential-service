@@ -30,7 +30,13 @@ func TestGatewayAuthorize_UntrustedIssuer(t *testing.T) {
 
     mux := http.NewServeMux()
     // Minimal dependencies for gateway routes
-    httpx.RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", nil, "did:jwk:gateway", nil, nil, nil, time.Now)
+    httpx.RegisterGatewayRoutes(mux, &httpx.GatewayConfig{
+        Resolver:        resolver,
+        Registry:        registry,
+        DefaultTenantID: "tenant",
+        JWTIssuer:       "did:jwk:gateway",
+        Now:             time.Now,
+    })
 
     // Issue a simple credential
     token, err := domain.IssueBasicCredential(issuerDID, "did:jwk:subject", priv, 5*time.Minute, map[string]any{"aud": "example-api"})
@@ -68,7 +74,13 @@ func TestGatewayAuthorize_TrustedIssuerAllows(t *testing.T) {
     }
 
     mux := http.NewServeMux()
-    httpx.RegisterGatewayRoutes(mux, resolver, registry, nil, "tenant", nil, issuerDID, nil, nil, nil, time.Now)
+    httpx.RegisterGatewayRoutes(mux, &httpx.GatewayConfig{
+        Resolver:        resolver,
+        Registry:        registry,
+        DefaultTenantID: "tenant",
+        JWTIssuer:       issuerDID,
+        Now:             time.Now,
+    })
 
     token, err := domain.IssueBasicCredential(issuerDID, "did:jwk:subject", priv, 5*time.Minute, map[string]any{"aud": "example-api", "scope": []string{"read"}})
     if err != nil {

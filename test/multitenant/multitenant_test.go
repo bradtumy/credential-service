@@ -82,7 +82,15 @@ func TestMultiTenantEndToEnd(t *testing.T) {
 	mux := http.NewServeMux()
 	httpx.RegisterIssuerRoutes(mux, keyStore, cfg, nil)
 	httpx.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, &metrics.NoopVerifierMetrics{}, time.Now)
-	httpx.RegisterGatewayRoutes(mux, resolver, trustRegistry, policyEngine, cfg.DefaultTenantID, signingKeyA, issuerDIDs[cfg.DefaultTenantID], nil, nil, nil, time.Now)
+	httpx.RegisterGatewayRoutes(mux, &httpx.GatewayConfig{
+		Resolver:        resolver,
+		Registry:        trustRegistry,
+		PolicyEngine:    policyEngine,
+		DefaultTenantID: cfg.DefaultTenantID,
+		SigningKey:      signingKeyA,
+		JWTIssuer:       issuerDIDs[cfg.DefaultTenantID],
+		Now:             time.Now,
+	})
 
 	handler := httpx.RequestContext(httpx.TenantMiddleware(tenant.Resolver{Mode: tenant.ModeMulti, DefaultTenantID: cfg.DefaultTenantID, Store: tenantStore}, mux))
 
