@@ -23,14 +23,14 @@ A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation 
 - **W3C VC-JWT Format:** Credentials follow the W3C VC-JWT specification with `typ: "vc+jwt"` header and proper payload structure:
   ```json
   {
-    "iss": "did:jwk:...",
-    "sub": "did:example:alice",
+    "iss": "did:jwk:eyJrdHkiOiJPS1AiLCJjcnYiOiJFZDI1NTE5IiwieCI6IjExcVlBWU...",
+    "sub": "did:jwk:eyJrdHkiOiJPS1AiLCJjcnYiOiJFZDI1NTE5IiwieCI6ImFiY2RlZm...",
     "iat": 1234567890,
     "exp": 1234571490,
     "vc": {
       "@context": ["https://www.w3.org/2018/credentials/v1"],
       "type": ["VerifiableCredential"],
-      "issuer": "did:jwk:...",
+      "issuer": "did:jwk:eyJrdHkiOiJPS1AiLCJjcnYiOiJFZDI1NTE5IiwieCI6IjExcVlBWU...",
       "credentialSubject": { "scope": "read:orders" }
     }
   }
@@ -59,10 +59,11 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
 
 3. **Issue a credential via the issuer API (port 8080)**
    ```bash
+   # Using did:jwk (DID with embedded public key) for the subject
    VC=$(curl -s -X POST http://localhost:8080/v1/credentials/issue \
      -H "Content-Type: application/json" \
      -d '{
-       "subject_did": "did:example:alice",
+       "subject_did": "did:jwk:eyJrdHkiOiJPS1AiLCJjcnYiOiJFZDI1NTE5IiwieCI6IjExcVlBWUtGMWJuRjNyeEh0Q19FN2I4N1ZRdHJhRUp2WVU0aGRxNFU5SWsifQ",
        "ttl_seconds": 600,
        "claims": {"aud": "sample-api", "scope": "read:orders"}
      }' | jq -r '.credential')
@@ -80,7 +81,7 @@ Prereqs: Docker and Docker Compose v2. The steps below use only the HTTP APIs so
      -d '{"credential": "'$VC'", "expected_audience": "sample-api"}' | jq
 
    # Sample response:
-   # { "active": true, "issuer": "did:jwk:...", "subject": "did:example:alice" }
+   # { "active": true, "issuer": "did:jwk:...", "subject": "did:jwk:eyJrdHk..." }
    ```
 
 5. **Authorize through the gateway API and mint a synthetic JWT**
@@ -107,11 +108,12 @@ The verifier ships with a default policy that allows `read` on `orders` for any 
 ### Delegation in one command (optional)
 Mint a constrained agent credential and authorize it:
 ```bash
+# Using did:jwk for the agent/delegate
 delegated=$(curl -s -X POST http://localhost:8080/v1/credentials/delegate \
   -H "Content-Type: application/json" \
   -d '{
     "parent_credential": "'$VC'",
-    "delegate_did": "did:example:agent",
+    "delegate_did": "did:jwk:eyJrdHkiOiJPS1AiLCJjcnYiOiJFZDI1NTE5IiwieCI6InhYeVpBYmNEZWZHaGlKa2xNbm9QcXJTdFV2V3h5WjAxMjM0NTY3ODlBQkMifQ",
     "scope": ["read:orders"],
     "ttl_seconds": 300
   }' | jq -r '.credential')
