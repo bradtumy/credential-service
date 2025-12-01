@@ -25,7 +25,9 @@ type KeyMetadata struct {
 	NotAfter  string
 }
 
-// KeyID derives a stable kid for the provided signer.
+// KeyID derives a stable kid for the provided signer using RFC 7638 JWK Thumbprint.
+// RFC 7638 specifies a canonical JSON representation with only required fields
+// in lexicographic order, then SHA-256 hash, then base64url encoding.
 func KeyID(s Signer) (string, error) {
 	type keyed interface{ KeyID() string }
 	if k, ok := s.(keyed); ok && k.KeyID() != "" {
@@ -35,8 +37,97 @@ func KeyID(s Signer) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(jwk)
-	return base64.RawURLEncoding.EncodeToString(sum[:]), nil
+	
+	// Compute RFC 7638 JWK Thumbprint
+	thumbprint, err := computeJWKThumbprint(jwk)
+	if err != nil {
+		return "", fmt.Errorf("compute jwk thumbprint: %w", err)
+	}
+	return thumbprint, nil
+}
+
+// computeJWKThumbprint implements RFC 7638 JWK Thumbprint computation.
+// It uses only the required fields for each key type in lexicographic order.
+func computeJWKThumbprint(jwk []byte) (string, error) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(jwk, &payload); err != nil {
+		return "", fmt.Errorf("unmarshal jwk: %w", err)
+	}
+
+	kty, ok := payload["kty"].(string)
+	if !ok {
+		return "", errors.New("missing or invalid kty")
+	}
+
+	// Build canonical representation with only required fields in lexicographic order
+	var canonical map[string]interface{}
+	
+	switch kty {
+	case "OKP":
+		// Required fields for OKP: crv, kty, x (lexicographic order)
+		crv, ok := payload["crv"].(string)
+		if !ok {
+			return "", errors.New("missing or invalid crv for OKP key")
+		}
+		x, ok := payload["x"].(string)
+		if !ok {
+			return "", errors.New("missing or invalid x for OKP key")
+		}
+		canonical = map[string]interface{}{
+			"crv": crv,
+			"kty": kty,
+			"x":   x,
+		}
+	case "EC":
+		// Required fields for EC: crv, kty, x, y (lexicographic order)
+		crv, ok := payload["crv"].(string)
+		if !ok {
+			return "", errors.New("missing or invalid crv for EC key")
+		}
+		x, ok := payload["x"].(string)
+		if !ok {
+			return "", errors.New("missing or invalid x for EC key")
+		}
+		y, ok := payload["y"].(string)
+		if !ok {
+			return "", errors.New("missing or invalid y for EC key")
+		}
+		canonical = map[string]interface{}{
+			"crv": crv,
+			"kty": kty,
+			"x":   x,
+			"y":   y,
+		}
+	case "RSA":
+		// Required fields for RSA: e, kty, n (lexicographic order)
+		e, ok := payload["e"].(string)
+		if !ok {
+			return "", errors.New("missing or invalid e for RSA key")
+		}
+		n, ok := payload["n"].(string)
+		if !ok {
+			return "", errors.New("missing or invalid n for RSA key")
+		}
+		canonical = map[string]interface{}{
+			"e":   e,
+			"kty": kty,
+			"n":   n,
+		}
+	default:
+		return "", fmt.Errorf("unsupported kty: %s", kty)
+	}
+
+	// Marshal to JSON with no whitespace (canonical form)
+	canonicalJSON, err := json.Marshal(canonical)
+	if err != nil {
+		return "", fmt.Errorf("marshal canonical jwk: %w", err)
+	}
+
+	// SHA-256 hash
+	hash := sha256.Sum256(canonicalJSON)
+	
+	// Base64url encode without padding
+	return base64.RawURLEncoding.EncodeToString(hash[:]), nil
 }
 
 // ParsePublicJWK decodes a public JWK into a crypto.PublicKey and algorithm.
