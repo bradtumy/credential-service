@@ -223,12 +223,12 @@ Notes:
 
 #### SDK Examples (Minimal)
 
-**Go (sdk-go helpers)**
+**Go (sdk/go helpers)**
 ```go
 package main
 import (
   "fmt"
-  sdk "github.com/bradtumy/credential-service/sdk-go"
+  sdk "github.com/bradtumy/credential-service/sdk/go"
 )
 func main() {
   client := sdk.NewClient("", "")
@@ -251,9 +251,9 @@ func main() {
 }
 ```
 
-**Node.js (sdk-nodejs helpers)**
+**Node.js (sdk/nodejs helpers)**
 ```javascript
-const Client = require('./sdk-nodejs/client');
+const Client = require('./sdk/nodejs/client');
 
 async function run() {
   const c = new Client({ issuerURL: 'http://localhost:8080', verifierURL: 'http://localhost:8081' });
@@ -319,13 +319,13 @@ Full walkthrough with detailed explanations:
    **Option C: Use the SDK**
    ```go
    // Go SDK
-   import "github.com/bradtumy/credential-service/sdk-go"
+   import "github.com/bradtumy/credential-service/sdk/go"
    keypair, _ := sdk.GenerateDIDJWK("EdDSA")
    fmt.Println("DID:", keypair.DID)
    ```
    ```javascript
    // Node.js SDK
-   const { generateDIDJWK } = require('@credential-service/sdk-nodejs/keygen');
+   const { generateDIDJWK } = require('@credential-service/sdk/nodejs/keygen');
    const keypair = await generateDIDJWK('EdDSA');
    console.log('DID:', keypair.did);
    ```
@@ -558,11 +558,11 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — Threat modeling notes and mitigations.
 
 ## SDKs
-- **Go (`sdk-go`):**
-  - Import: `github.com/bradtumy/credential-service/sdk-go`
+- **Go (`sdk/go`):**
+  - Import: `github.com/bradtumy/credential-service/sdk/go`
   - Example (SD-JWT helpers):
     ```go
-    import sdk "github.com/bradtumy/credential-service/sdk-go"
+    import sdk "github.com/bradtumy/credential-service/sdk/go"
     client := sdk.NewClient("", "")
     issued, _ := client.IssueSDJWTCredential("http://localhost:8080", sdk.SDJWTIssueRequest{
       SubjectDID: "did:jwk:alice", TTLSeconds: 600,
@@ -570,8 +570,8 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs
     })
     verify, _ := client.VerifySDJWT("http://localhost:8081", issued.Credential, issued.Disclosures[:1])
     ```
-- **Node.js (`sdk-nodejs`):**
-  - Import (local repo): `const Client = require('./sdk-nodejs/client')`
+- **Node.js (`sdk/nodejs`):**
+  - Import (local repo): `const Client = require('./sdk/nodejs/client')`
   - Example (SD-JWT helpers):
     ```javascript
     const c = new Client({ issuerURL: 'http://localhost:8080', verifierURL: 'http://localhost:8081' })
@@ -580,8 +580,8 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs
     ```
 
 Notes:
-- Node package is local (`sdk-nodejs`) and not published; use relative import or publish to your registry before `npm install`.
-- Go module path is `github.com/bradtumy/credential-service/sdk-go`; use `go get` with your VCS or replace with your org path if forked.
+- Node package is local (`sdk/nodejs`) and not published; use relative import or publish to your registry before `npm install`.
+- Go module path is `github.com/bradtumy/credential-service/sdk/go`; use `go get` with your VCS or replace with your org path if forked.
 
 ## SD-JWT and issuance policies
 - **Selective Disclosure:** Request `format: "sd-jwt"` when issuing to receive a signed SD-JWT plus disclosure list. Example:

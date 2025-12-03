@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/cloudflare/cfssl v1.4.1
 	github.com/gorilla/mux v1.8.1
-	github.com/hyperledger/fabric-sdk-go v1.0.0
+	github.com/hyperledger/fabric-sdk/go v1.0.0
 )
 
 require (

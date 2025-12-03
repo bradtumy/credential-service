@@ -99,10 +99,10 @@ clean:
 examples-sd-jwt-go:
 	@echo "Running Go SD-JWT example..."
 	@[ -z "$$ALICE_DID" ] && echo "ALICE_DID is required. Generate via ./bin/keygen -did-only and export ALICE_DID" && exit 1 || true
-	@cd examples/sdk-go/sd-jwt2 && go mod tidy && ISSUER_URL=$${ISSUER_URL:-http://localhost:8080} VERIFIER_URL=$${VERIFIER_URL:-http://localhost:8081} go run .
+	@cd examples/sdk/go/sd-jwt2 && go mod tidy && ISSUER_URL=$${ISSUER_URL:-http://localhost:8080} VERIFIER_URL=$${VERIFIER_URL:-http://localhost:8081} go run .
 
 examples-sd-jwt-node:
 	@echo "Running Node SD-JWT example..."
 	@[ -z "$$ALICE_DID" ] && echo "ALICE_DID is required. Generate via ./bin/keygen -did-only and export ALICE_DID" && exit 1 || true
-	@npm --prefix sdk-nodejs install
-	@ISSUER_URL=$${ISSUER_URL:-http://localhost:8080} VERIFIER_URL=$${VERIFIER_URL:-http://localhost:8081} node examples/sdk-nodejs/sd-jwt/index.js
+	@npm --prefix sdk/nodejs install
+	@ISSUER_URL=$${ISSUER_URL:-http://localhost:8080} VERIFIER_URL=$${VERIFIER_URL:-http://localhost:8081} node examples/sdk/nodejs/sd-jwt/index.js
