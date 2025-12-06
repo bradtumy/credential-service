@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration test-e2e test-coverage lint sec ci keygen build-all clean dev-up dev-down help examples-sd-jwt-go examples-sd-jwt-node
+.PHONY: test test-unit test-integration test-e2e test-coverage lint sec ci keygen idctl build-all clean dev-up dev-down help examples-sd-jwt-go examples-sd-jwt-node
 
 MODULE_PATH=./...
 VERSION?=dev
@@ -8,15 +8,16 @@ all: lint test
 
 ## Help command
 help:
-	@echo "Available targets:"
+        @echo "Available targets:"
 	@echo "  make test           - Run unit tests"
 	@echo "  make test-coverage  - Run tests with coverage report"
 	@echo "  make lint           - Run linter"
-	@echo "  make sec            - Run security scanner"
-	@echo "  make build-all      - Build all services"
-	@echo "  make keygen         - Build keygen CLI tool"
-	@echo "  make dev-up         - Start development environment"
-	@echo "  make dev-down       - Stop development environment"
+        @echo "  make sec            - Run security scanner"
+        @echo "  make build-all      - Build all services"
+        @echo "  make keygen         - Build keygen CLI tool"
+        @echo "  make idctl          - Build idctl CLI tool"
+        @echo "  make dev-up         - Start development environment"
+        @echo "  make dev-down       - Stop development environment"
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make ci             - Run all CI checks"
 	@echo "  make examples-sd-jwt-go   - Run Go SD-JWT example (requires ALICE_DID)"
@@ -67,10 +68,16 @@ release:
 	@go build -ldflags "-X github.com/bradtumy/credential-service/internal/version.BuildVersion=$(VERSION)" ./cmd/verifier
 
 keygen:
-	@echo "Building keygen CLI tool"
-	@mkdir -p bin
-	@go build -o bin/keygen ./cmd/keygen
-	@echo "✓ Built: bin/keygen"
+        @echo "Building keygen CLI tool"
+        @mkdir -p bin
+        @go build -o bin/keygen ./cmd/keygen
+        @echo "✓ Built: bin/keygen"
+
+idctl:
+        @echo "Building idctl CLI tool"
+        @mkdir -p bin
+        @go build -o bin/idctl ./cmd/idctl
+        @echo "✓ Built: bin/idctl"
 
 dev-up:
 	@echo "Starting development environment..."
