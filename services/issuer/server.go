@@ -47,8 +47,14 @@ func NewServer(ctx context.Context, cfg config.IssuerConfig) (*Server, error) {
 		store = productionStore
 		log.Printf("Using production keystore with backend: %s", productionStore.GetBackend())
 	} else {
-		store = keystore.NewMemoryKeyStore()
-		log.Printf("Using memory keystore (development mode)")
+		fileStore, err := keystore.NewFileBackedKeyStoreFromEnv()
+		if err != nil {
+			log.Printf("Using memory keystore (development mode, file store unavailable: %v)", err)
+			store = keystore.NewMemoryKeyStore()
+		} else {
+			store = fileStore
+			log.Printf("Using file-backed keystore at %s", fileStore.Path())
+		}
 	}
 
 	tenantStore := tenant.NewMemoryStore()
