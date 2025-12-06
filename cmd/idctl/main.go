@@ -266,7 +266,7 @@ func vcIssue(args []string) error {
 		claims["scope"] = scope
 	}
 
-	client := sdk.Client{BaseURL: *issuerURL}
+	client := sdk.Client{IssuerURL: *issuerURL}
 	resp, err := client.IssueCredential(context.Background(), sdk.IssueRequest{
 		SubjectDID: *subject,
 		TTLSeconds: *ttl,
@@ -307,7 +307,7 @@ func vcVerify(args []string) error {
 		return errors.New("either --credential or --credential-file must be provided")
 	}
 
-	client := sdk.Client{BaseURL: *verifierURL}
+	client := sdk.Client{VerifierURL: *verifierURL}
 	resp, err := client.Verify(context.Background(), token)
 	if err != nil {
 		return fmt.Errorf("verify credential: %w", err)
