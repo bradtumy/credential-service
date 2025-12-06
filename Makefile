@@ -36,11 +36,12 @@ test-coverage:
 	@echo "✓ Coverage report: coverage.html"
 
 test-integration:
-	@echo "Running integration tests..."
-	@go test ./test/integration/... -count=1 -timeout=60s || true
+@echo "Running integration tests..."
+@go test ./test/integration/... -count=1 -timeout=60s || true
 
 test-e2e:
-	@echo "e2e tests not implemented yet"
+@echo "Running end-to-end tests..."
+@go test ./tests/e2e -tags=e2e -vet=off -count=1 -timeout=120s
 
 lint:
 	@echo "Running linter..."
