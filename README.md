@@ -37,7 +37,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a detailed repository layou
 - **cmd/** contains the binaries (`issuer`, `verifier`, and utility `keygen`).
 - **services/** wires each HTTP server and composes shared middleware.
 - **internal/** holds shared libraries such as credential primitives (`domain`), HTTP handlers (`httpserver`), keystore selection, policy engine, and persistence adapters.
-- **sdk-go/** and **sdk-node/** surface the Go and Node SDKs while keeping module paths stable.
+- **sdk-go/** and **sdk/node/** surface the Go and Node SDKs while keeping module paths stable (see the [Node SDK docs](sdk/node/README.md)).
 
 ### Centralized Deployment (Enterprise)
 
@@ -258,28 +258,33 @@ func main() {
 }
 ```
 
-**Node.js (sdk-nodejs helpers)**
+**Node.js SDK**
 ```javascript
-const Client = require('./sdk-nodejs/client');
+import { CredentialServiceClient } from '@id2me/credential-sdk';
 
 async function run() {
-  const c = new Client({ issuerURL: 'http://localhost:8080', verifierURL: 'http://localhost:8081' });
-  const issued = await c.issueSdJwtCredential({
+  const client = new CredentialServiceClient({
+    issuerUrl: 'http://localhost:8080',
+    verifierUrl: 'http://localhost:8081'
+  });
+
+  const issued = await client.issueSDJWT({
     subject_did: 'did:jwk:ALICE_REPLACE',
     ttl_seconds: 600,
-    claims: { email: 'alice@example.com', department: 'engineering', scope: 'read:orders' }
+    claims: { email: 'alice@example.com', department: 'engineering', scope: ['read:orders'] }
   });
   console.log('SD-JWT:', issued.credential);
   console.log('Disclosures:', issued.disclosures);
 
-  const verify = await c.verifySdJwtCredential({
+  const verify = await client.verify({
     credential: issued.credential,
-    disclosures: [issued.disclosures[1]]
+    disclosures: issued.disclosures?.slice(0, 1),
+    format: 'sd-jwt'
   });
-  console.log('Partial verification active:', verify.active);
+  console.log('Partial verification valid:', verify.valid);
 }
 
-run().catch(err => console.error(err.response?.data || err.message));
+run().catch((err) => console.error(err));
 ```
 
 Replace `did:jwk:ALICE_REPLACE` with a DID generated earlier (e.g., from `./bin/keygen -did-only`).
@@ -579,17 +584,18 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs
     })
     verify, _ := client.VerifySDJWT("http://localhost:8081", issued.Credential, issued.Disclosures[:1])
     ```
-- **Node.js (`sdk-nodejs`):**
-  - Import (local repo): `const Client = require('./sdk-nodejs/client')`
+- **Node.js (`sdk/node`):**
+  - Package name: `@id2me/credential-sdk` (see [sdk/node/README.md](sdk/node/README.md)).
   - Example (SD-JWT helpers):
     ```javascript
-    const c = new Client({ issuerURL: 'http://localhost:8080', verifierURL: 'http://localhost:8081' })
-    const issued = await c.issueSdJwtCredential({ subject_did: 'did:jwk:alice', ttl_seconds: 600, claims: { scope: 'read:orders' } })
-    const verify = await c.verifySdJwtCredential({ credential: issued.credential, disclosures: [issued.disclosures[0]] })
+    import { CredentialServiceClient } from '@id2me/credential-sdk'
+    const client = new CredentialServiceClient({ issuerUrl: 'http://localhost:8080', verifierUrl: 'http://localhost:8081' })
+    const issued = await client.issueSDJWT({ subject_did: 'did:jwk:alice', ttl_seconds: 600, claims: { scope: ['read:orders'] } })
+    const verify = await client.verify({ credential: issued.credential, disclosures: issued.disclosures?.slice(0, 1), format: 'sd-jwt' })
     ```
 
 Notes:
-- Node package is local (`sdk-nodejs`) and not published; use relative import or publish to your registry before `npm install`.
+- Node SDK is ready for publishing to npm and lives in `sdk/node`.
 - Go module path is `github.com/bradtumy/credential-service/sdk-go`; use `go get` with your VCS or replace with your org path if forked.
 
 ## SD-JWT and issuance policies
