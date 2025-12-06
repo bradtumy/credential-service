@@ -546,6 +546,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Module layout and component relationships.
 - [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) — Local development environment setup and tooling.
 - [docs/CLI.md](docs/CLI.md) — Building and using the `idctl` CLI helper.
+- [docs/DID.md](docs/DID.md) — DID toolkit overview and CLI usage for `did:jwk`.
 - [docs/TESTING.md](docs/TESTING.md) — Testing strategy and how to run the suites.
 - [docs/SECURITY.md](docs/SECURITY.md) — Security model, threat considerations, and hardening tips.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — Planned features and upcoming work.

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/bradtumy/credential-service/internal/crypto"
+	"github.com/bradtumy/credential-service/internal/did"
 	"github.com/bradtumy/credential-service/internal/logging"
 )
 
@@ -53,29 +53,43 @@ func HandleKeygeneration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate DID and key pair
-	keypair, err := crypto.GenerateDIDJWK(req.Algorithm)
+	doc, err := did.NewDIDJWKWithAlg(req.Algorithm)
 	if err != nil {
 		logging.Logger.Error("Failed to generate DID", "error", err, "algorithm", req.Algorithm)
 		http.Error(w, `{"error":"failed to generate DID"}`, http.StatusInternalServerError)
 		return
 	}
 
+	key, err := doc.CurrentKey()
+	if err != nil {
+		logging.Logger.Error("Failed to extract current key", "error", err)
+		http.Error(w, `{"error":"failed to generate DID"}`, http.StatusInternalServerError)
+		return
+	}
+
+	publicJWK, err := json.Marshal(key.PublicJWK)
+	if err != nil {
+		logging.Logger.Error("Failed to marshal public JWK", "error", err)
+		http.Error(w, `{"error":"failed to generate DID"}`, http.StatusInternalServerError)
+		return
+	}
+
 	// Build response
 	resp := KeygenResponse{
-		DID:       keypair.DID,
-		Algorithm: keypair.Algorithm,
-		PublicJWK: string(keypair.PublicJWK),
+		DID:       doc.DID,
+		Algorithm: key.Algorithm,
+		PublicJWK: string(publicJWK),
 	}
 
 	// Include private key only if explicitly requested
 	if req.ReturnPrivateKey {
-		resp.PrivateKeyPEM = string(keypair.PrivateKeyPEM)
-		logging.Logger.Warn("Private key returned in API response - ensure TLS is enabled", "did", keypair.DID)
+		resp.PrivateKeyPEM = key.PrivateKeyPEM
+		logging.Logger.Warn("Private key returned in API response - ensure TLS is enabled", "did", doc.DID)
 	}
 
 	logging.Logger.Info("Generated new DID",
-		"did", keypair.DID,
-		"algorithm", keypair.Algorithm,
+		"did", doc.DID,
+		"algorithm", key.Algorithm,
 		"private_key_returned", req.ReturnPrivateKey)
 
 	w.Header().Set("Content-Type", "application/json")

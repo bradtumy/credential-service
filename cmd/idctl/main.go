@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bradtumy/credential-service/internal/crypto"
+	"github.com/bradtumy/credential-service/internal/did"
 	sdk "github.com/bradtumy/credential-service/sdk/go"
 )
 
@@ -59,6 +59,12 @@ func handleDID(args []string) error {
 	switch args[0] {
 	case "create":
 		return didCreate(args[1:])
+	case "export":
+		return didExport(args[1:])
+	case "import":
+		return didImport(args[1:])
+	case "rotate":
+		return didRotate(args[1:])
 	case "-h", "--help", "help":
 		didUsage()
 		return nil
@@ -73,6 +79,8 @@ func didCreate(args []string) error {
 	fs := flag.NewFlagSet("did create", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	algorithm := fs.String("alg", "EdDSA", "Key algorithm (EdDSA or ES256)")
+	storePath := fs.String("store", did.DefaultStorePath(), "Path to DID store JSON file")
+	label := fs.String("label", "", "Optional label for this DID (defaults to DID value)")
 
 	if err := fs.Parse(args); err != nil {
 		fs.SetOutput(os.Stderr)
@@ -80,26 +88,135 @@ func didCreate(args []string) error {
 		return err
 	}
 
-	kp, err := crypto.GenerateDIDJWK(*algorithm)
+	doc, err := did.NewDIDJWKWithAlg(*algorithm)
 	if err != nil {
 		return fmt.Errorf("generate did:jwk: %w", err)
 	}
 
-	var publicJWK map[string]interface{}
-	if err := json.Unmarshal(kp.PublicJWK, &publicJWK); err != nil {
-		return fmt.Errorf("decode public jwk: %w", err)
+	store := did.NewFileStore(*storePath)
+	if err := store.Load(); err != nil {
+		return fmt.Errorf("load DID store: %w", err)
 	}
 
-	output := map[string]interface{}{
-		"did":             kp.DID,
-		"algorithm":       kp.Algorithm,
-		"public_jwk":      publicJWK,
-		"private_key_pem": strings.TrimSpace(string(kp.PrivateKeyPEM)),
+	if err := store.Save(*label, doc); err != nil {
+		return fmt.Errorf("save DID: %w", err)
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(output)
+	return printDID(doc)
+}
+
+func didExport(args []string) error {
+	fs := flag.NewFlagSet("did export", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	label := fs.String("label", "", "Label of the DID to export")
+	output := fs.String("output", "", "File to write the DID document (default: stdout)")
+	storePath := fs.String("store", did.DefaultStorePath(), "Path to DID store JSON file")
+
+	if err := fs.Parse(args); err != nil {
+		fs.SetOutput(os.Stderr)
+		fs.Usage()
+		return err
+	}
+
+	if *label == "" {
+		return errors.New("--label is required")
+	}
+
+	store, err := loadStore(*storePath)
+	if err != nil {
+		return err
+	}
+
+	doc, ok := store.Get(*label)
+	if !ok {
+		return fmt.Errorf("did not find entry for label %s", *label)
+	}
+
+	data, err := did.ExportDID(doc)
+	if err != nil {
+		return fmt.Errorf("export DID: %w", err)
+	}
+
+	if *output == "" {
+		os.Stdout.Write(data)
+		if len(data) == 0 || data[len(data)-1] != '\n' {
+			fmt.Fprintln(os.Stdout)
+		}
+		return nil
+	}
+
+	return os.WriteFile(*output, data, 0o600)
+}
+
+func didImport(args []string) error {
+	fs := flag.NewFlagSet("did import", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	file := fs.String("file", "", "Path to a DID document JSON file")
+	label := fs.String("label", "", "Label to store the DID under (default: DID value)")
+	storePath := fs.String("store", did.DefaultStorePath(), "Path to DID store JSON file")
+
+	if err := fs.Parse(args); err != nil {
+		fs.SetOutput(os.Stderr)
+		fs.Usage()
+		return err
+	}
+
+	if *file == "" {
+		return errors.New("--file is required")
+	}
+
+	data, err := os.ReadFile(*file)
+	if err != nil {
+		return fmt.Errorf("read DID file: %w", err)
+	}
+
+	doc, err := did.ImportDID(data)
+	if err != nil {
+		return fmt.Errorf("import DID: %w", err)
+	}
+
+	store, err := loadStore(*storePath)
+	if err != nil {
+		return err
+	}
+
+	if err := store.Save(*label, doc); err != nil {
+		return fmt.Errorf("save DID: %w", err)
+	}
+
+	return printDID(doc)
+}
+
+func didRotate(args []string) error {
+	fs := flag.NewFlagSet("did rotate", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	label := fs.String("label", "", "Label of the DID to rotate")
+	storePath := fs.String("store", did.DefaultStorePath(), "Path to DID store JSON file")
+
+	if err := fs.Parse(args); err != nil {
+		fs.SetOutput(os.Stderr)
+		fs.Usage()
+		return err
+	}
+
+	if *label == "" {
+		return errors.New("--label is required")
+	}
+
+	store, err := loadStore(*storePath)
+	if err != nil {
+		return err
+	}
+
+	doc, err := store.Rotate(*label)
+	if err != nil {
+		return fmt.Errorf("rotate DID: %w", err)
+	}
+
+	return printDID(doc)
 }
 
 func handleVC(args []string) error {
@@ -209,17 +326,23 @@ Usage:
   idctl vc <command> [options]
 
 Commands:
-  did create           Generate a did:jwk identifier
+  did create           Generate a did:jwk identifier and save to the local store
+  did export           Export a stored DID document
+  did import           Import a DID document JSON file
+  did rotate           Rotate a DID's keys and update the store
   vc issue             Issue a verifiable credential
   vc verify            Verify a credential
 `)
 }
 
 func didUsage() {
-	fmt.Fprintf(os.Stderr, `Usage: idctl did create [options]
+	fmt.Fprintf(os.Stderr, `Usage: idctl did <command> [options]
 
-Options:
-  --alg string   Key algorithm (EdDSA or ES256). Default: EdDSA
+Commands:
+  create   Generate a did:jwk identifier (options: --alg, --store, --label)
+  export   Export a DID document (options: --label, --output, --store)
+  import   Import a DID document (options: --file, --label, --store)
+  rotate   Rotate a DID's key (options: --label, --store)
 `)
 }
 
@@ -237,6 +360,33 @@ func envDefault(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+func loadStore(path string) (*did.FileStore, error) {
+	store := did.NewFileStore(path)
+	if err := store.Load(); err != nil {
+		return nil, fmt.Errorf("load DID store: %w", err)
+	}
+	return store, nil
+}
+
+func printDID(doc did.DIDDocument) error {
+	key, err := doc.CurrentKey()
+	if err != nil {
+		return err
+	}
+
+	payload := map[string]interface{}{
+		"did":             doc.DID,
+		"algorithm":       key.Algorithm,
+		"current_key_id":  doc.CurrentKeyID,
+		"public_jwk":      key.PublicJWK,
+		"private_key_pem": strings.TrimSpace(key.PrivateKeyPEM),
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(payload)
 }
 
 func parseScope(scope string) []string {
