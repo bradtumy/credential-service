@@ -36,11 +36,14 @@ type GatewayAuthorizeResponse struct {
 	ActingOnBehalfOf string                 `json:"acting_on_behalf_of,omitempty"`
 	DelegationDepth  int                    `json:"delegation_depth,omitempty"`
 	Claims           map[string]interface{} `json:"claims,omitempty"`
-	Reason           string                 `json:"reason,omitempty"`
 	SyntheticJWT     string                 `json:"synthetic_jwt,omitempty"`
 	Agent            *AgentContext          `json:"agent,omitempty"`
 	TenantID         string                 `json:"tenant_id,omitempty"`
 	PolicyID         *int64                 `json:"policy_id,omitempty"`
+	ErrorCode        string                 `json:"error_code,omitempty"`
+	Message          string                 `json:"message,omitempty"`
+	Details          map[string]any         `json:"details,omitempty"`
+	Reason           string                 `json:"reason,omitempty"`
 	APIVersion       string                 `json:"api_version"`
 }
 
@@ -94,27 +97,26 @@ func RegisterGatewayRoutes(mux *http.ServeMux, cfg *GatewayConfig) {
 
 	mux.HandleFunc("/v1/gateway/authorize", func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
+		tenantID := TenantIDFromContext(r.Context())
+		if tenantID == "" {
+			tenantID = cfg.DefaultTenantID
+		}
 		if r.Method != http.MethodPost {
-			WriteAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			writeGatewayError(w, tenantID, gatewayError{status: http.StatusMethodNotAllowed, code: "method_not_allowed", message: "method not allowed"})
 			return
 		}
 
 		var req GatewayAuthorizeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			WriteAPIError(w, http.StatusBadRequest, "bad_request", "invalid request payload")
+			writeGatewayError(w, tenantID, gatewayError{status: http.StatusBadRequest, code: "invalid_request", message: "invalid request payload"})
 			return
-		}
-
-		tenantID := TenantIDFromContext(r.Context())
-		if tenantID == "" {
-			tenantID = cfg.DefaultTenantID
 		}
 
 		cfg.Metrics.IncAuthzRequest(tenantID)
 
 		if err := validateGatewayRequest(req); err != nil {
 			cfg.Metrics.IncAuthzDeny(tenantID, "invalid_request")
-			WriteAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			writeGatewayError(w, tenantID, gatewayError{status: http.StatusBadRequest, code: "invalid_request", message: err.Error()})
 			return
 		}
 
@@ -130,7 +132,7 @@ func RegisterGatewayRoutes(mux *http.ServeMux, cfg *GatewayConfig) {
 		}
 		if !allowed {
 			cfg.Metrics.IncAuthzDeny(tenantID, "rate_limited")
-			WriteAPIError(w, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
+			writeGatewayError(w, tenantID, gatewayError{status: http.StatusTooManyRequests, code: "rate_limited", message: "rate limit exceeded"})
 			return
 		}
 
@@ -138,11 +140,15 @@ func RegisterGatewayRoutes(mux *http.ServeMux, cfg *GatewayConfig) {
 		if cached, ok := readCachedDecision(cfg.DecisionCache, cacheKey); ok {
 			cfg.Metrics.IncAuthzCacheHit(tenantID)
 			logGatewayDecision(started, tenantID, cached, true)
-			writeDecision(w, cached)
+			writeGatewayDecision(w, cached)
 			if cached.Allowed {
 				cfg.Metrics.IncAuthzAllow(tenantID)
 			} else {
-				cfg.Metrics.IncAuthzDeny(tenantID, cached.Reason)
+				denyReason := cached.ErrorCode
+				if denyReason == "" {
+					denyReason = cached.Reason
+				}
+				cfg.Metrics.IncAuthzDeny(tenantID, denyReason)
 			}
 			return
 		}
@@ -166,12 +172,11 @@ func RegisterGatewayRoutes(mux *http.ServeMux, cfg *GatewayConfig) {
 
 		chainResult, err := domain.VerifyCredentialChain(tokens, deps, domain.VerificationOptions{ExpectedAudience: req.ExpectedAudience, MaxDelegationDepth: 3}, cfg.Now())
 		if err != nil {
-			reason := mapVerificationErrorToReason(err)
-			metrics.DefaultVerifierMetrics.IncVerificationFailure(reason)
-			resp := GatewayAuthorizeResponse{Allowed: false, Reason: reason, APIVersion: version.APIVersion, TenantID: tenantID}
-			cfg.Metrics.IncAuthzDeny(tenantID, reason)
+			gwErr := mapVerificationError(err)
+			metrics.DefaultVerifierMetrics.IncVerificationFailure(gwErr.code)
+			cfg.Metrics.IncAuthzDeny(tenantID, gwErr.code)
+			resp := writeGatewayError(w, tenantID, gwErr)
 			logGatewayDecision(started, tenantID, resp, false)
-			writeDecision(w, resp)
 			return
 		}
 
@@ -192,14 +197,15 @@ func RegisterGatewayRoutes(mux *http.ServeMux, cfg *GatewayConfig) {
 
 		policyResult, err := cfg.PolicyEngine.Evaluate(evalInput)
 		if err != nil {
-			WriteAPIError(w, http.StatusInternalServerError, "policy_error", err.Error())
+			gwErr := gatewayError{status: http.StatusInternalServerError, code: "policy_error", message: err.Error()}
+			writeGatewayError(w, tenantID, gwErr)
 			return
 		}
 		if !policyResult.Allow {
 			cfg.Metrics.IncAuthzDeny(tenantID, "policy_denied")
-			denyResp := GatewayAuthorizeResponse{Allowed: false, Reason: "policy_denied", TenantID: tenantID, PolicyID: policyResult.PolicyID, APIVersion: version.APIVersion}
+			denyResp := GatewayAuthorizeResponse{Allowed: false, ErrorCode: "policy_denied", Message: policyResult.Reason, Details: map[string]any{"policy_id": policyResult.PolicyID}, Reason: "policy_denied", TenantID: tenantID, PolicyID: policyResult.PolicyID, APIVersion: version.APIVersion}
 			logGatewayDecision(started, tenantID, denyResp, false)
-			writeDecision(w, denyResp)
+			writeGatewayDecision(w, denyResp)
 			return
 		}
 		var agentContext *AgentContext
@@ -230,9 +236,9 @@ func RegisterGatewayRoutes(mux *http.ServeMux, cfg *GatewayConfig) {
 		if req.WantSyntheticJWT {
 			jwt, err := domain.BuildSyntheticJWT(decision, cfg.SigningKey, cfg.JWTIssuer, 15*time.Minute)
 			if err != nil {
-				resp := GatewayAuthorizeResponse{Allowed: false, Reason: "jwt_error", APIVersion: version.APIVersion, TenantID: tenantID}
+				resp := GatewayAuthorizeResponse{Allowed: false, ErrorCode: "internal_error", Message: "failed to mint synthetic jwt", Details: map[string]any{"error": err.Error()}, Reason: "jwt_error", APIVersion: version.APIVersion, TenantID: tenantID}
 				cfg.Metrics.IncAuthzDeny(tenantID, "jwt_error")
-				writeDecision(w, resp)
+				writeGatewayDecision(w, resp)
 				return
 			}
 			response.SyntheticJWT = jwt.Token
@@ -243,38 +249,78 @@ func RegisterGatewayRoutes(mux *http.ServeMux, cfg *GatewayConfig) {
 		ttl := computeDecisionTTL(chainResult, cfg.Now())
 		persistDecision(cfg.DecisionCache, cacheKey, response, ttl)
 		logGatewayDecision(started, tenantID, response, false)
-		writeDecision(w, response)
+		writeGatewayDecision(w, response)
 	})
 }
 
-func writeDecision(w http.ResponseWriter, resp GatewayAuthorizeResponse) {
-	w.Header().Set("Content-Type", "application/json")
-	status := http.StatusOK
-	if !resp.Allowed {
-		status = http.StatusForbidden
+type gatewayError struct {
+	status  int
+	code    string
+	message string
+	details map[string]any
+}
+
+func writeGatewayDecision(w http.ResponseWriter, resp GatewayAuthorizeResponse) {
+	writeGatewayResponse(w, statusForGatewayResponse(resp), resp)
+}
+
+func writeGatewayError(w http.ResponseWriter, tenantID string, err gatewayError) GatewayAuthorizeResponse {
+	resp := GatewayAuthorizeResponse{
+		Allowed:    false,
+		ErrorCode:  err.code,
+		Message:    err.message,
+		Details:    err.details,
+		Reason:     err.code,
+		TenantID:   tenantID,
+		APIVersion: version.APIVersion,
 	}
+	writeGatewayResponse(w, err.status, resp)
+	return resp
+}
+
+func writeGatewayResponse(w http.ResponseWriter, status int, resp GatewayAuthorizeResponse) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func mapVerificationErrorToReason(err error) string {
+func statusForGatewayResponse(resp GatewayAuthorizeResponse) int {
+	if resp.Allowed {
+		return http.StatusOK
+	}
+
+	switch resp.ErrorCode {
+	case "invalid_request":
+		return http.StatusBadRequest
+	case "rate_limited":
+		return http.StatusTooManyRequests
+	case "policy_denied":
+		return http.StatusForbidden
+	case "credential_expired", "invalid_credential", "delegation_invalid", "issuer_not_trusted", "credential_revoked", "tenant_mismatch":
+		return http.StatusUnauthorized
+	case "policy_error", "internal_error":
+		return http.StatusInternalServerError
+	}
+
+	if resp.Reason == "jwt_error" {
+		return http.StatusInternalServerError
+	}
+
+	return http.StatusForbidden
+}
+
+func mapVerificationError(err error) gatewayError {
 	switch {
 	case errors.Is(err, domain.ErrExpiredCredential):
-		return "expired_credential"
+		return gatewayError{status: http.StatusUnauthorized, code: "credential_expired", message: "credential has expired"}
 	case errors.Is(err, domain.ErrUntrustedIssuer):
-		return "untrusted_issuer"
-	case errors.Is(err, domain.ErrInvalidSignature):
-		return "invalid_signature"
-	case errors.Is(err, domain.ErrUnexpectedAudience):
-		return "unexpected_audience"
-	case errors.Is(err, domain.ErrDelegationDepth):
-		return "delegation_depth_exceeded"
-	case errors.Is(err, domain.ErrDelegationScope):
-		return "invalid_scope"
-	case errors.Is(err, domain.ErrDelegationTTL):
-		return "invalid_ttl"
+		return gatewayError{status: http.StatusUnauthorized, code: "issuer_not_trusted", message: "issuer is not trusted"}
+	case errors.Is(err, domain.ErrInvalidSignature), errors.Is(err, domain.ErrInvalidToken), errors.Is(err, domain.ErrIssuedInFuture), errors.Is(err, domain.ErrUnexpectedAudience), errors.Is(err, domain.ErrMissingDisclosure), errors.Is(err, domain.ErrInvalidDisclosure):
+		return gatewayError{status: http.StatusUnauthorized, code: "invalid_credential", message: err.Error()}
+	case errors.Is(err, domain.ErrDelegationDepth), errors.Is(err, domain.ErrDelegationScope), errors.Is(err, domain.ErrDelegationTTL), errors.Is(err, domain.ErrInvalidDelegation):
+		return gatewayError{status: http.StatusUnauthorized, code: "delegation_invalid", message: err.Error()}
 	default:
-		return "verification_failed"
+		return gatewayError{status: http.StatusInternalServerError, code: "internal_error", message: "credential verification failed", details: map[string]any{"error": err.Error()}}
 	}
 }
 

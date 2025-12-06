@@ -150,7 +150,7 @@ A Go-based microservice stack for issuing JWT-encoded VCs, verifying delegation 
   }
   ```
 - **RFC 7638 JWK Thumbprints:** Key identifiers (`kid`) are computed using RFC 7638 JWK Thumbprint for standards-compliant key identification.
-- **Gateway & Synthetic JWTs:** `/v1/gateway/authorize` returns an allow/deny decision and can mint a short-lived JWT so downstream services can keep using `Authorization: Bearer <token>`.
+- **Gateway & Synthetic JWTs:** `/v1/gateway/authorize` returns an allow/deny decision and can mint a short-lived JWT so downstream services can keep using `Authorization: Bearer <token>`. See [Gateway Authorization API](docs/GATEWAY.md) for request/response shapes and error codes.
 - **Tenancy:** `X-Tenant-ID` header (or the default tenant in single-tenant mode) scopes trust registries and policies; Docker Compose runs in single-tenant mode by default.
 - **Policy Evaluation:** Requests are authorized against tenant policies using action/resource matching plus optional scope/claim conditions.
 
