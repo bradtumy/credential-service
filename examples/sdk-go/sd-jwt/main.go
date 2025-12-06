@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	sdk "github.com/bradtumy/credential-service/sdk-go"
 	"log"
@@ -15,8 +16,13 @@ func main() {
 		log.Fatalf("ALICE_DID is required. Generate one via ./bin/keygen -did-only and export ALICE_DID before running.")
 	}
 
-	client := sdk.NewClient("", "")
-	issued, err := client.IssueSDJWTCredential(issuerURL, sdk.SDJWTIssueRequest{
+	client := &sdk.Client{
+		IssuerURL:   issuerURL,
+		VerifierURL: verifierURL,
+	}
+	ctx := context.Background()
+
+	issued, err := client.IssueSDJWT(ctx, sdk.IssueRequest{
 		SubjectDID: subjectDID,
 		TTLSeconds: 600,
 		Claims: map[string]interface{}{
@@ -31,11 +37,11 @@ func main() {
 	fmt.Println("SD-JWT:", issued.Credential)
 	fmt.Println("Disclosures:", issued.Disclosures)
 
-	verify, err := client.VerifySDJWT(verifierURL, issued.Credential, issued.Disclosures[:1])
+	verify, err := client.Verify(ctx, issued.Credential)
 	if err != nil {
 		log.Fatalf("verify sd-jwt: %v", err)
 	}
-	fmt.Println("Partial verification active:", verify.Active)
+	fmt.Println("Verification valid:", verify.Valid)
 }
 
 func env(k, def string) string {
