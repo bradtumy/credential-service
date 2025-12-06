@@ -545,6 +545,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs
 - [docs/API_OVERVIEW.md](docs/API_OVERVIEW.md) — Endpoint summaries, sample payloads, and the happy-path flow.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Module layout and component relationships.
 - [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) — Local development environment setup and tooling.
+- [docs/CLI.md](docs/CLI.md) — Building and using the `idctl` CLI helper.
 - [docs/TESTING.md](docs/TESTING.md) — Testing strategy and how to run the suites.
 - [docs/SECURITY.md](docs/SECURITY.md) — Security model, threat considerations, and hardening tips.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — Planned features and upcoming work.
