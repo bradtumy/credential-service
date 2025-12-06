@@ -1,4 +1,4 @@
-package httpx
+package httpserver
 
 import (
 	"bytes"
@@ -24,7 +24,7 @@ func TestVerifierHandlerSuccess(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	
+
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
@@ -80,7 +80,7 @@ func TestVerifierHandlerDelegatedCredential(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	
+
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
@@ -137,7 +137,7 @@ func TestVerifierHandlerExpiredCredential(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	
+
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 
@@ -178,7 +178,7 @@ func TestVerifierHandlerUntrustedIssuer(t *testing.T) {
 	// Capture audit logs
 	var buf bytes.Buffer
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(&buf, nil))
-	
+
 	_, priv, _ := ed25519.GenerateKey(nil)
 	issuerDID, _ := domain.DIDFromPublicKey(priv.Public())
 

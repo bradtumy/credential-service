@@ -1,4 +1,4 @@
-package httpx
+package httpserver
 
 import (
 	"encoding/json"
@@ -21,8 +21,8 @@ type BootstrapRequest struct {
 type BootstrapResponse struct {
 	IssuerDID           string    `json:"issuer_did"`
 	RootAdminCredential string    `json:"root_admin_credential"`
-	ExpiresAt          time.Time `json:"expires_at"`
-	APIVersion         string    `json:"api_version"`
+	ExpiresAt           time.Time `json:"expires_at"`
+	APIVersion          string    `json:"api_version"`
 }
 
 // RegisterBootstrapRoutes wires bootstrap HTTP routes into the provided mux
@@ -71,7 +71,7 @@ func RegisterBootstrapRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg co
 
 		// Create admin claims for root admin VC
 		adminClaims := domain.CreateAdminClaims([]string{domain.SuperAdminRole}, map[string]interface{}{
-			"bootstrap": true,
+			"bootstrap":  true,
 			"created_at": time.Now().UTC().Format(time.RFC3339),
 		})
 
@@ -93,12 +93,11 @@ func RegisterBootstrapRoutes(mux *http.ServeMux, store keystore.KeyStore, cfg co
 		response := BootstrapResponse{
 			IssuerDID:           issuerDID,
 			RootAdminCredential: rootAdminCredential,
-			ExpiresAt:          expiresAt,
-			APIVersion:         version.APIVersion,
+			ExpiresAt:           expiresAt,
+			APIVersion:          version.APIVersion,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	})
 }
-

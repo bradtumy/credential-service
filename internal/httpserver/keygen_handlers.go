@@ -1,4 +1,4 @@
-package httpx
+package httpserver
 
 import (
 	"encoding/json"
@@ -73,8 +73,8 @@ func HandleKeygeneration(w http.ResponseWriter, r *http.Request) {
 		logging.Logger.Warn("Private key returned in API response - ensure TLS is enabled", "did", keypair.DID)
 	}
 
-	logging.Logger.Info("Generated new DID", 
-		"did", keypair.DID, 
+	logging.Logger.Info("Generated new DID",
+		"did", keypair.DID,
 		"algorithm", keypair.Algorithm,
 		"private_key_returned", req.ReturnPrivateKey)
 

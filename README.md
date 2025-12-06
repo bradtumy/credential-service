@@ -32,6 +32,13 @@ It aims to be fast to start, easy to integrate, and clear about standards alignm
 
 ## Architecture
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a detailed repository layout. At a glance:
+
+- **cmd/** contains the binaries (`issuer`, `verifier`, and utility `keygen`).
+- **services/** wires each HTTP server and composes shared middleware.
+- **internal/** holds shared libraries such as credential primitives (`domain`), HTTP handlers (`httpserver`), keystore selection, policy engine, and persistence adapters.
+- **sdk-go/** and **sdk-node/** surface the Go and Node SDKs while keeping module paths stable.
+
 ### Centralized Deployment (Enterprise)
 
 Suitable for single-organization deployments where issuer and verifier share infrastructure:

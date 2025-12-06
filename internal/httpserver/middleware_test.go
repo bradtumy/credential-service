@@ -1,4 +1,4 @@
-package httpx
+package httpserver
 
 import (
 	"bytes"
@@ -81,23 +81,23 @@ func TestCorrelationIDMiddleware(t *testing.T) {
 	middleware := CorrelationIDMiddleware(handler)
 
 	tests := []struct {
-		name           string
-		headerValue    string
+		name            string
+		headerValue     string
 		expectGenerated bool
 	}{
 		{
-			name:           "with correlation ID header",
-			headerValue:    "existing-correlation-id",
+			name:            "with correlation ID header",
+			headerValue:     "existing-correlation-id",
 			expectGenerated: false,
 		},
 		{
-			name:           "without correlation ID header",
-			headerValue:    "",
+			name:            "without correlation ID header",
+			headerValue:     "",
 			expectGenerated: true,
 		},
 		{
-			name:           "with legacy X-Request-ID header",
-			headerValue:    "legacy-request-id",
+			name:            "with legacy X-Request-ID header",
+			headerValue:     "legacy-request-id",
 			expectGenerated: false,
 		},
 	}
@@ -153,10 +153,10 @@ func TestAuditMiddleware(t *testing.T) {
 	middleware := CorrelationIDMiddleware(AuditMiddleware(testHandler))
 
 	tests := []struct {
-		name           string
-		path           string
-		method         string
-		expectedAudit  bool
+		name          string
+		path          string
+		method        string
+		expectedAudit bool
 	}{
 		{
 			name:          "sensitive endpoint - credentials",
@@ -230,12 +230,12 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	middleware.ServeHTTP(rr, req)
 
 	expectedHeaders := map[string]string{
-		"X-Content-Type-Options":           "nosniff",
-		"X-Frame-Options":                  "DENY",
-		"X-XSS-Protection":                 "1; mode=block",
-		"Strict-Transport-Security":        "max-age=31536000; includeSubDomains",
-		"Content-Security-Policy":          "default-src 'self'",
-		"Referrer-Policy":                  "strict-origin-when-cross-origin",
+		"X-Content-Type-Options":    "nosniff",
+		"X-Frame-Options":           "DENY",
+		"X-XSS-Protection":          "1; mode=block",
+		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+		"Content-Security-Policy":   "default-src 'self'",
+		"Referrer-Policy":           "strict-origin-when-cross-origin",
 	}
 
 	for header, expectedValue := range expectedHeaders {
@@ -251,9 +251,9 @@ func TestRateLimitAuditMiddleware(t *testing.T) {
 	logging.AuditLogger = slog.New(handler)
 
 	tests := []struct {
-		name           string
-		statusCode     int
-		expectAudit    bool
+		name        string
+		statusCode  int
+		expectAudit bool
 	}{
 		{
 			name:        "rate limit exceeded",
@@ -298,10 +298,10 @@ func TestRateLimitAuditMiddleware(t *testing.T) {
 
 func TestGetClientIP(t *testing.T) {
 	tests := []struct {
-		name        string
-		remoteAddr  string
-		headers     map[string]string
-		expectedIP  string
+		name       string
+		remoteAddr string
+		headers    map[string]string
+		expectedIP string
 	}{
 		{
 			name:       "X-Forwarded-For header",

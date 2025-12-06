@@ -1,4 +1,4 @@
-package httpx
+package httpserver
 
 import (
 	"context"
@@ -68,7 +68,7 @@ func AdminAuthMiddleware(resolver func(string) (crypto.PublicKey, error), trustR
 
 			// Get the leaf credential claims
 			leafCredential := chainResult.Credentials[len(chainResult.Credentials)-1]
-			
+
 			// Validate admin claims
 			if err := domain.ValidateAdminVC(leafCredential.Claims, domain.SuperAdminRole); err != nil {
 				if err == domain.ErrNotAdminVC {
@@ -82,7 +82,7 @@ func AdminAuthMiddleware(resolver func(string) (crypto.PublicKey, error), trustR
 			// Add admin context to request
 			ctx := context.WithValue(r.Context(), "admin_subject", leafCredential.Subject)
 			ctx = context.WithValue(ctx, "admin_claims", leafCredential.Claims)
-			
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

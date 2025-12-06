@@ -1,4 +1,4 @@
-package httpx
+package httpserver
 
 import (
 	"bytes"
@@ -22,11 +22,11 @@ func TestIssueHandlerSuccess(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	
+
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
-    RegisterIssuerRoutes(mux, store, cfg, nil)
+	RegisterIssuerRoutes(mux, store, cfg, nil)
 
 	body := IssueRequest{
 		SubjectDID: "did:jwk:subject",
@@ -66,11 +66,11 @@ func TestIssueHandlerMissingSubject(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	
+
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
-    RegisterIssuerRoutes(mux, store, cfg, nil)
+	RegisterIssuerRoutes(mux, store, cfg, nil)
 
 	body := IssueRequest{TTLSeconds: int64((10 * time.Minute).Seconds())}
 	payload, _ := json.Marshal(body)
@@ -97,11 +97,11 @@ func TestDelegateHandlerSuccess(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	
+
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
-    RegisterIssuerRoutes(mux, store, cfg, nil)
+	RegisterIssuerRoutes(mux, store, cfg, nil)
 
 	signer, err := store.GetSigningKey(cfg.DefaultTenantID)
 	if err != nil {
@@ -152,11 +152,11 @@ func TestDelegateHandlerScopeExpansion(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	
+
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
-    RegisterIssuerRoutes(mux, store, cfg, nil)
+	RegisterIssuerRoutes(mux, store, cfg, nil)
 
 	signer, _ := store.GetSigningKey(cfg.DefaultTenantID)
 	issuerDID, _ := domain.DIDFromPublicKey(signer.Public())
@@ -184,11 +184,11 @@ func TestDelegateHandlerTTLExpansion(t *testing.T) {
 	// Initialize logging for tests
 	logging.Init("info")
 	logging.AuditLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	
+
 	store := keystore.NewMemoryKeyStore()
 	cfg := config.IssuerConfig{HTTPPort: "8080", DefaultTenantID: "tenant-1"}
 	mux := http.NewServeMux()
-    RegisterIssuerRoutes(mux, store, cfg, nil)
+	RegisterIssuerRoutes(mux, store, cfg, nil)
 
 	signer, _ := store.GetSigningKey(cfg.DefaultTenantID)
 	issuerDID, _ := domain.DIDFromPublicKey(signer.Public())
