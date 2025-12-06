@@ -3,7 +3,7 @@
 MODULE_PATH=./...
 VERSION?=dev
 
-# Default target
+# Default target 
 all: lint test
 
 ## Help command
