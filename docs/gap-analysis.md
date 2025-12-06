@@ -16,17 +16,17 @@ The repository already ships a multi-service Go stack for issuing JWT-encoded Ve
 - **VC Issuance & Verification Hardening:** Issuer flow signs credentials after fetching Vault keys and resolver data but lacks configurable scope/TTL enforcement, audience binding, SD-JWT disclosure handling, and structured error responses; verifier/gateway posture not clearly guarded by policy defaults or denial-safe evaluation.
 - **VC Inspection Tools:** No CLI or HTTP utilities to inspect, decode, or lint VC/JWT structure and delegation chains for developers.
 - **Agent Credential Helpers & Delegation Chains:** README mentions delegation but there is no explicit delegation depth enforcement, on-behalf-of chain tracing, or reusable helper APIs/SDK ergonomics for agents.
-- **Gateway Route Structure:** Routes live in `httpx` with mux usage; no typed router grouping, versioned subrouters, or clear contract for gateway authorization/decision schemas.
+- **Gateway Route Structure:** Routes live in `httpserver` with mux usage; no typed router grouping, versioned subrouters, or clear contract for gateway authorization/decision schemas.
 - **CLI Tools:** Keygen exists; missing cohesive CLI with subcommands for DID generation, issuance, verification, trust-registry management, policy debugging, and gateway auth testing.
 - **SDK Readiness:** Go/Node SDKs are referenced but not surfaced with versioning, generated models, or consistent error types; no samples showing SDK usage for agents.
 - **Containerization + Local Dev:** Compose exists but lacks one-liner data seeding, migration orchestration, hot-reload dev mode, and pre-configured TLS/secure defaults for local testing.
-- **Professional Folder Layout:** Multiple service roots (issuer, verifier, etc.) and internal packages exist but lack consolidated `pkg`/`internal` layering per bounded context; command folders are thin shells with business logic scattered in `internal/httpx` without clean separation of handlers/services.
+- **Professional Folder Layout:** Multiple service roots (issuer, verifier, etc.) and internal packages exist but lack consolidated `pkg`/`internal` layering per bounded context; command folders are thin shells with business logic scattered in `internal/httpserver` without clean separation of handlers/services.
 - **Secure Defaults:** Memory keystore is default with opt-in production keystore; tenant store defaults to in-memory; no default rate limits, CSRF/JWT audience enforcement, or strict time skew checks.
 - **High-Quality DX:** Sparse tests, no lint/format pre-commit hooks, limited structured logging usage (standard `log` calls), no observability defaults, and limited docs for SDK/API schemas.
 
 ## 4. Recommended Refactors
 - **Adopt Structured Logging + Context Propagation:** Replace `log.Printf`/`Fatalf` in services with a logger interface (zap/zerolog) threaded via context to handlers for consistent request correlation and auditability. 【F:cmd/issuer/main.go†L21-L66】【F:internal/issuer/service.go†L41-L82】
-- **Clarify Handler vs Service Layers:** Move business logic out of HTTP handlers in `internal/issuer`/`internal/httpx` into services with interfaces to enable testing and future transports.
+- **Clarify Handler vs Service Layers:** Move business logic out of HTTP handlers in `internal/issuer`/`internal/httpserver` into services with interfaces to enable testing and future transports.
 - **Normalize Router Layout:** Use versioned subrouters (e.g., `/v1`) with typed request/response structs and OpenAPI generation, consolidating gateway/issuer routes under explicit packages rather than ad-hoc mux registration.
 - **Configuration Hardening:** Centralize config validation (required env vars, sane defaults), explicit TLS/hostname settings, and per-service observability toggles; avoid implicit defaults like memory keystore without warning flags. 【F:cmd/issuer/main.go†L35-L47】
 - **Key Management Abstraction:** Standardize keystore interface to include key metadata, rotation hooks, and DID document publication; decouple Vault/KMS clients from issuer logic via interfaces.

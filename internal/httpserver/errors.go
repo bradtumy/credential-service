@@ -1,4 +1,4 @@
-package httpx
+package httpserver
 
 import (
 	"encoding/json"
@@ -11,12 +11,12 @@ import (
 
 // APIError provides a consistent error body for HTTP handlers with enhanced error information.
 type APIError struct {
-	Error       string      `json:"error"`
-	Description string      `json:"description,omitempty"`
-	Code        string      `json:"code"`
-	APIVersion  string      `json:"api_version"`
+	Error       string       `json:"error"`
+	Description string       `json:"description,omitempty"`
+	Code        string       `json:"code"`
+	APIVersion  string       `json:"api_version"`
 	Fields      []FieldError `json:"fields,omitempty"`
-	TraceID     string      `json:"trace_id,omitempty"`
+	TraceID     string       `json:"trace_id,omitempty"`
 }
 
 // FieldError provides detailed field-level validation errors.

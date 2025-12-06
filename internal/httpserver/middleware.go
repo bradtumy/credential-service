@@ -1,4 +1,4 @@
-package httpx
+package httpserver
 
 import (
 	"context"
@@ -34,7 +34,7 @@ func CorrelationIDMiddleware(next http.Handler) http.Handler {
 
 		// Add correlation ID to request context using new logging package
 		ctx := logging.WithCorrelationID(r.Context(), correlationID)
-		
+
 		// Extract and add tenant ID if present
 		tenantID := extractTenantID(r)
 		if tenantID != "" {
@@ -223,7 +223,7 @@ func RateLimitAuditMiddleware(next http.Handler) http.Handler {
 		// Log rate limit exceeded events
 		if wrappedWriter.statusCode == http.StatusTooManyRequests {
 			ctx := r.Context()
-			logging.LogSecurityEvent(ctx, 
+			logging.LogSecurityEvent(ctx,
 				logging.AuditEventRateLimitExceeded,
 				"blocked",
 				"Rate limit exceeded for client",
