@@ -57,8 +57,8 @@ func TestGatewayAuthorize_UntrustedIssuer(t *testing.T) {
 
 	mux.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for untrusted issuer, got %d", rr.Code)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for untrusted issuer, got %d", rr.Code)
 	}
 }
 

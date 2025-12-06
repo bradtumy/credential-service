@@ -160,14 +160,14 @@ func TestGatewayAuthorizeDenyExpired(t *testing.T) {
 
 	mux.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", rr.Code)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
 	}
 
 	var resp GatewayAuthorizeResponse
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
 
-	if resp.Allowed || resp.Reason != "expired_credential" {
+	if resp.Allowed || resp.ErrorCode != "credential_expired" {
 		t.Fatalf("unexpected deny response: %+v", resp)
 	}
 }
@@ -197,13 +197,13 @@ func TestGatewayAuthorizeUntrustedIssuer(t *testing.T) {
 
 	mux.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", rr.Code)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
 	}
 
 	var resp GatewayAuthorizeResponse
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	if resp.Allowed || resp.Reason != "untrusted_issuer" {
+	if resp.Allowed || resp.ErrorCode != "issuer_not_trusted" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
@@ -355,7 +355,7 @@ func TestGatewayAuthorizePolicyDeny(t *testing.T) {
 	}
 	var resp GatewayAuthorizeResponse
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	if resp.Allowed || resp.Reason != "policy_denied" {
+	if resp.Allowed || resp.ErrorCode != "policy_denied" {
 		t.Fatalf("expected policy deny, got %+v", resp)
 	}
 }
@@ -417,7 +417,7 @@ func TestGatewayAuthorizePolicyDefaultDeny(t *testing.T) {
 	}
 	var resp GatewayAuthorizeResponse
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	if resp.Allowed || resp.Reason != "policy_denied" {
+	if resp.Allowed || resp.ErrorCode != "policy_denied" {
 		t.Fatalf("expected default policy deny, got %+v", resp)
 	}
 }
