@@ -37,7 +37,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a detailed repository layou
 - **cmd/** contains the binaries (`issuer`, `verifier`, and utility `keygen`).
 - **services/** wires each HTTP server and composes shared middleware.
 - **internal/** holds shared libraries such as credential primitives (`domain`), HTTP handlers (`httpserver`), keystore selection, policy engine, and persistence adapters.
-- **sdk-go/** and **sdk/node/** surface the Go and Node SDKs while keeping module paths stable (see the [Node SDK docs](sdk/node/README.md)).
+- **sdk/go** and **sdk/node** surface the Go and Node SDKs while keeping module paths stable (see the [Node SDK docs](sdk/node/README.md)).
 
 ### Centralized Deployment (Enterprise)
 
@@ -230,7 +230,7 @@ Notes:
 
 #### SDK Examples (Minimal)
 
-**Go (sdk-go helpers)**
+**Go (sdk/go helpers; module path `sdk-go`)**
 ```go
 package main
 import (
@@ -572,7 +572,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for module layout, [TENANCY.md](docs
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — Threat modeling notes and mitigations.
 
 ## SDKs
-- **Go (`sdk-go`):**
+- **Go (`sdk/go`, module path `sdk-go`):**
   - Import: `github.com/bradtumy/credential-service/sdk-go`
   - Example (SD-JWT helpers):
     ```go
