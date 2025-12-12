@@ -66,9 +66,13 @@ func (c *Client) issue(ctx context.Context, req IssueRequest) (IssueResponse, er
 
 // Verify checks a credential or chain using the verifier service.
 func (c *Client) Verify(ctx context.Context, credential string) (VerifyResponse, error) {
-	payload := VerifyRequest{Credential: credential}
+	return c.VerifyWithOptions(ctx, VerifyRequest{Credential: credential})
+}
+
+// VerifyWithOptions allows passing audience expectations and chains.
+func (c *Client) VerifyWithOptions(ctx context.Context, req VerifyRequest) (VerifyResponse, error) {
 	var resp VerifyResponse
-	if err := c.post(ctx, c.VerifierURL, "/v1/credentials/verify", payload, &resp); err != nil {
+	if err := c.post(ctx, c.VerifierURL, "/v1/credentials/verify", req, &resp); err != nil {
 		return VerifyResponse{}, err
 	}
 	return resp, nil

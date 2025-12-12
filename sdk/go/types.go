@@ -60,6 +60,8 @@ type AuthorizeRequest struct {
 	Credential       string   `json:"credential,omitempty"`
 	Credentials      []string `json:"credentials,omitempty"`
 	ExpectedAudience string   `json:"expected_audience,omitempty"`
+	Resource         string   `json:"resource,omitempty"`
+	Action           string   `json:"action,omitempty"`
 	WantSyntheticJWT bool     `json:"want_synthetic_jwt,omitempty"`
 }
 

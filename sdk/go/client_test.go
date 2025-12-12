@@ -79,12 +79,17 @@ func TestAuthorizeFallsBackToVerifierURL(t *testing.T) {
 		if r.URL.Path != "/v1/gateway/authorize" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
+		var req AuthorizeRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Resource != "orders" || req.Action != "read" {
+			t.Fatalf("unexpected request payload: %+v", req)
+		}
 		_ = json.NewEncoder(w).Encode(AuthorizeResponse{Allowed: true, SyntheticJWT: "synthetic"})
 	}))
 	t.Cleanup(srv.Close)
 
 	client := &Client{VerifierURL: srv.URL}
-	resp, err := client.Authorize(context.Background(), AuthorizeRequest{Credential: "cred", WantSyntheticJWT: true})
+	resp, err := client.Authorize(context.Background(), AuthorizeRequest{Credential: "cred", Resource: "orders", Action: "read", WantSyntheticJWT: true})
 	if err != nil {
 		t.Fatalf("Authorize returned error: %v", err)
 	}
