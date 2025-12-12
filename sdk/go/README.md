@@ -14,14 +14,14 @@ go get github.com/bradtumy/credential-service/sdk-go
 package main
 
 import (
-    "context"
-    "log"
+        "context"
+        "log"
 
-    sdk "github.com/bradtumy/credential-service/sdk-go"
+        sdk "github.com/bradtumy/credential-service/sdk-go"
 )
 
 func main() {
-    client := sdk.NewLocalDevClient()
+        client := sdk.NewLocalDevClient()
 
     issued, err := client.IssueVC(context.Background(), sdk.IssueRequest{
         SubjectDID: "did:example:alice",
@@ -51,3 +51,18 @@ func main() {
 ```
 
 For end-to-end flows and service details, see the repository root `README.md` and the docs directory.
+
+## High-level "magic" client
+The `MagicClient` hides most configuration and wires the gateway fields required for policy evaluation:
+
+```go
+ctx := context.Background()
+magic := sdk.NewMagicLocalClient()
+
+parent, _ := magic.IssueVC(ctx, "did:example:alice", 600, map[string]any{"aud": "sample-api", "scope": []string{"orders:read", "orders:write"}})
+agent, _ := magic.SpawnAgent(ctx, parent, "did:example:agent", []string{"orders:read"}, 120, map[string]any{"aud": "sample-api"})
+decision, _ := magic.Authorize(ctx, []string{parent, agent}, "orders", "read", "sample-api", true)
+log.Printf("allowed=%v synthetic_jwt=%s", decision.Allowed, decision.SyntheticJWT)
+```
+
+Use `NewMagicClientFromEnv()` to honor `ISSUER_URL`, `VERIFIER_URL`, and `GATEWAY_URL` when running outside Docker Compose.
