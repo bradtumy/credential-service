@@ -191,7 +191,7 @@ func verifySingleCredential(token string, disclosures []string, deps VerifierDep
 		}
 
 		if len(credential.SDDigests) > 0 {
-			if err := applyDisclosures(&credential, disclosures); err != nil {
+			if err := applySDJWDisclosures(&credential, disclosures); err != nil {
 				return VerifiableCredential{}, err
 			}
 		}
@@ -257,7 +257,7 @@ func verifySingleCredential(token string, disclosures []string, deps VerifierDep
 	}
 
 	if len(credential.SDDigests) > 0 {
-		if err := applyDisclosures(&credential, disclosures); err != nil {
+		if err := applySDJWDisclosures(&credential, disclosures); err != nil {
 			return VerifiableCredential{}, err
 		}
 	}
@@ -284,71 +284,7 @@ func parseSDJWTPayload(token string) (string, []string) {
 	return base, parts[1:]
 }
 
-func applyDisclosures(vc *VerifiableCredential, disclosures []string) error {
-	if len(vc.SDDigests) == 0 {
-		return nil
-	}
-	digestSet := map[string]struct{}{}
-	for _, d := range vc.SDDigests {
-		digestSet[d] = struct{}{}
-	}
-
-	resolvedClaims := map[string]interface{}{}
-	for _, disclosure := range disclosures {
-		raw, err := base64.RawURLEncoding.DecodeString(disclosure)
-		if err != nil {
-			return ErrInvalidToken
-		}
-		var arr []interface{}
-		if err := json.Unmarshal(raw, &arr); err != nil {
-			return ErrInvalidToken
-		}
-		if len(arr) != 3 {
-			return ErrInvalidToken
-		}
-		salt, _ := arr[0].(string)
-		key, _ := arr[1].(string)
-		if salt == "" || key == "" {
-			return ErrInvalidToken
-		}
-		reconstructed, err := json.Marshal(arr)
-		if err != nil {
-			return ErrInvalidToken
-		}
-
-		digest := computeDisclosureDigest(reconstructed)
-		if _, ok := digestSet[digest]; !ok {
-			return ErrInvalidDisclosure
-		}
-		resolvedClaims[key] = arr[2]
-	}
-
-	for digest := range digestSet {
-		match := false
-		for _, disclosure := range disclosures {
-			raw, err := base64.RawURLEncoding.DecodeString(disclosure)
-			if err != nil {
-				return ErrInvalidDisclosure
-			}
-			if computeDisclosureDigest(raw) == digest {
-				match = true
-				break
-			}
-		}
-		if !match {
-			return ErrMissingDisclosure
-		}
-	}
-
-	if vc.Claims == nil {
-		vc.Claims = map[string]interface{}{}
-	}
-	for k, v := range resolvedClaims {
-		vc.Claims[k] = v
-	}
-	vc.SDDigests = nil
-	return nil
-}
+// applyDisclosures removed; use applySDJWDisclosures from vc_helpers.go
 
 func ScopeFromClaims(claims map[string]interface{}) []string {
 	if claims == nil {
