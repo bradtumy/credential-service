@@ -4,18 +4,17 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 )
 
-// computeDisclosureDigest computes the digest used for SD-JWT disclosures.
-func computeDisclosureDigest(disclosure []byte) string {
+// computeSDJWDigest computes the digest used for SD-JWT disclosures.
+func computeSDJWDigest(disclosure []byte) string {
 	h := sha256.Sum256(disclosure)
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
-// applyDisclosures applies SD-JWT disclosures to a VerifiableCredential.
+// applySDJWDisclosures applies SD-JWT disclosures to a VerifiableCredential.
 // It verifies that disclosures match the expected digests and populates vc.Claims.
-func applyDisclosures(vc *VerifiableCredential, disclosures []string) error {
+func applySDJWDisclosures(vc *VerifiableCredential, disclosures []string) error {
 	if len(vc.SDDigests) == 0 {
 		return nil
 	}
@@ -47,7 +46,7 @@ func applyDisclosures(vc *VerifiableCredential, disclosures []string) error {
 			return ErrInvalidToken
 		}
 
-		digest := computeDisclosureDigest(reconstructed)
+		digest := computeSDJWDigest(reconstructed)
 		if _, ok := digestSet[digest]; !ok {
 			return ErrInvalidDisclosure
 		}
@@ -61,7 +60,7 @@ func applyDisclosures(vc *VerifiableCredential, disclosures []string) error {
 			if err != nil {
 				return ErrInvalidDisclosure
 			}
-			if computeDisclosureDigest(raw) == digest {
+			if computeSDJWDigest(raw) == digest {
 				match = true
 				break
 			}

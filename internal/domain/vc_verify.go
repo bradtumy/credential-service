@@ -191,7 +191,7 @@ func verifySingleCredential(token string, disclosures []string, deps VerifierDep
 		}
 
 		if len(credential.SDDigests) > 0 {
-			if err := applyDisclosures(&credential, disclosures); err != nil {
+			if err := applySDJWDisclosures(&credential, disclosures); err != nil {
 				return VerifiableCredential{}, err
 			}
 		}
@@ -257,7 +257,7 @@ func verifySingleCredential(token string, disclosures []string, deps VerifierDep
 	}
 
 	if len(credential.SDDigests) > 0 {
-		if err := applyDisclosures(&credential, disclosures); err != nil {
+		if err := applySDJWDisclosures(&credential, disclosures); err != nil {
 			return VerifiableCredential{}, err
 		}
 	}
@@ -284,9 +284,7 @@ func parseSDJWTPayload(token string) (string, []string) {
 	return base, parts[1:]
 }
 
-func applyDisclosures(vc *VerifiableCredential, disclosures []string) error {
-	return applyDisclosures(vc, disclosures)
-}
+// applyDisclosures removed; use applySDJWDisclosures from vc_helpers.go
 
 func ScopeFromClaims(claims map[string]interface{}) []string {
 	if claims == nil {

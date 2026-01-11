@@ -362,7 +362,7 @@ func buildDisclosure(key string, value interface{}) (string, string, error) {
 	}
 
 	disclosure := base64.RawURLEncoding.EncodeToString(disclosureBytes)
-	digest := computeDisclosureDigest(disclosureBytes)
+	digest := computeSDJWDigest(disclosureBytes)
 
 	return disclosure, digest, nil
 }
