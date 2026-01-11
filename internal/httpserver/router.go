@@ -7,7 +7,6 @@ import (
 	"github.com/bradtumy/credential-service/internal/config"
 	"github.com/bradtumy/credential-service/internal/domain"
 	"github.com/bradtumy/credential-service/internal/keystore"
-	"github.com/bradtumy/credential-service/internal/metrics"
 	"github.com/bradtumy/credential-service/internal/policy"
 	"github.com/bradtumy/credential-service/internal/storage"
 )
@@ -41,10 +40,10 @@ func NewRouter(cfg RouterConfig) *http.ServeMux {
 	}
 
 	// bootstrap and issuer routes require keystore and issuer config
-	if cfg.KeyStore != nil && cfg.IssuerConfig != (config.IssuerConfig{}) && cfg.TrustRegistry != nil {
+	if cfg.KeyStore != nil && cfg.IssuerConfig.DefaultTenantID != "" && cfg.TrustRegistry != nil {
 		RegisterBootstrapRoutes(mux, cfg.KeyStore, cfg.IssuerConfig, cfg.TrustRegistry)
 	}
-	if cfg.KeyStore != nil && cfg.IssuerConfig != (config.IssuerConfig{}) && cfg.AuditStore != nil {
+	if cfg.KeyStore != nil && cfg.IssuerConfig.DefaultTenantID != "" && cfg.AuditStore != nil {
 		RegisterIssuerRoutes(mux, cfg.KeyStore, cfg.IssuerConfig, cfg.AuditStore)
 	}
 
