@@ -1,10 +1,10 @@
 package config
 
 import (
-        "os"
-        "strconv"
+	"os"
+	"strconv"
 
-        "github.com/bradtumy/credential-service/internal/policy"
+	"github.com/bradtumy/credential-service/internal/policy"
 )
 
 // Config holds application configuration loaded from environment variables.
@@ -42,63 +42,67 @@ func getenv(key, fallback string) string {
 
 // IssuerConfig holds configuration for the issuer service.
 type IssuerConfig struct {
-        HTTPPort        string
-        DefaultTenantID string
-        TenancyMode     string
-        LogLevel        string
-        AuditDB_DSN     string
-        Policy          policy.IssuancePolicy
+	HTTPPort        string
+	DefaultTenantID string
+	TenancyMode     string
+	LogLevel        string
+	AuditDB_DSN     string
+	Policy          policy.IssuancePolicy
 }
 
 // LoadIssuerConfigFromEnv loads issuer configuration from environment variables.
 func LoadIssuerConfigFromEnv() IssuerConfig {
-        return IssuerConfig{
-                HTTPPort:        getenv("ISSUER_HTTP_PORT", "8080"),
-                DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
-                TenancyMode:     getenv("TENANCY_MODE", "single"),
-                LogLevel:        getenv("ISSUER_LOG_LEVEL", "info"),
-                AuditDB_DSN:     getenv("ISSUER_AUDIT_DB_DSN", ""),
-                Policy:          policy.LoadIssuancePolicyFromEnv(),
-        }
+	return IssuerConfig{
+		HTTPPort:        getenv("ISSUER_HTTP_PORT", "8080"),
+		DefaultTenantID: getenv("DEFAULT_TENANT_ID", "default-tenant"),
+		TenancyMode:     getenv("TENANCY_MODE", "single"),
+		LogLevel:        getenv("ISSUER_LOG_LEVEL", "info"),
+		AuditDB_DSN:     getenv("ISSUER_AUDIT_DB_DSN", ""),
+		Policy:          policy.LoadIssuancePolicyFromEnv(),
+	}
 }
 
 // VerifierConfig holds configuration for the verifier service.
 type VerifierConfig struct {
-	HTTPPort           string
-	DefaultTenantID    string
-	DB_DSN             string
-	UseDBTrustRegistry bool
-	TenancyMode        string
-	LogLevel           string
-	GatewayCache       bool
-	RateLimitEnabled   bool
-	RedisAddr          string
-	RedisPassword      string
-	RedisDB            int
+	HTTPPort                string
+	DefaultTenantID         string
+	DB_DSN                  string
+	UseDBTrustRegistry      bool
+	TenancyMode             string
+	LogLevel                string
+	GatewayCache            bool
+	RateLimitEnabled        bool
+	RedisAddr               string
+	RedisPassword           string
+	RedisDB                 int
+	OIDC4VPMaxRequestSize   int
+	OIDC4VPRevocationStrict bool
 	// DID Resolution Configuration
-	DIDResolutionTimeout int    // Timeout in seconds for DID resolution
-	MaxDIDLength        int    // Maximum allowed DID length
-	DIDResolverDebug    bool   // Enable debug logging for DID resolution
+	DIDResolutionTimeout int  // Timeout in seconds for DID resolution
+	MaxDIDLength         int  // Maximum allowed DID length
+	DIDResolverDebug     bool // Enable debug logging for DID resolution
 }
 
 // LoadVerifierConfigFromEnv loads verifier configuration from environment variables.
 func LoadVerifierConfigFromEnv() VerifierConfig {
 	return VerifierConfig{
-		HTTPPort:           getenv("VERIFIER_HTTP_PORT", "8081"),
-		DefaultTenantID:    getenv("DEFAULT_TENANT_ID", "default-tenant"),
-		DB_DSN:             getenv("VERIFIER_DB_DSN", ""),
-		UseDBTrustRegistry: getenv("VERIFIER_USE_DB_TRUST_REGISTRY", "false") == "true",
-		TenancyMode:        getenv("TENANCY_MODE", "single"),
-		LogLevel:           getenv("VERIFIER_LOG_LEVEL", "info"),
-		GatewayCache:       getenv("GATEWAY_CACHE_ENABLED", "false") == "true",
-		RateLimitEnabled:   getenv("RATELIMIT_ENABLED", "false") == "true",
-		RedisAddr:          getenv("REDIS_ADDR", ""),
-		RedisPassword:      getenv("REDIS_PASSWORD", ""),
-		RedisDB:            getenvInt("REDIS_DB", 0),
+		HTTPPort:                getenv("VERIFIER_HTTP_PORT", "8081"),
+		DefaultTenantID:         getenv("DEFAULT_TENANT_ID", "default-tenant"),
+		DB_DSN:                  getenv("VERIFIER_DB_DSN", ""),
+		UseDBTrustRegistry:      getenv("VERIFIER_USE_DB_TRUST_REGISTRY", "false") == "true",
+		TenancyMode:             getenv("TENANCY_MODE", "single"),
+		LogLevel:                getenv("VERIFIER_LOG_LEVEL", "info"),
+		GatewayCache:            getenv("GATEWAY_CACHE_ENABLED", "false") == "true",
+		RateLimitEnabled:        getenv("RATELIMIT_ENABLED", "false") == "true",
+		RedisAddr:               getenv("REDIS_ADDR", ""),
+		RedisPassword:           getenv("REDIS_PASSWORD", ""),
+		RedisDB:                 getenvInt("REDIS_DB", 0),
+		OIDC4VPMaxRequestSize:   getenvInt("OIDC4VP_MAX_REQUEST_SIZE", 262144),
+		OIDC4VPRevocationStrict: getenv("OIDC4VP_REVOCATION_STRICT", "true") == "true",
 		// DID Resolution Configuration
 		DIDResolutionTimeout: getenvInt("DID_RESOLUTION_TIMEOUT", 5), // 5 seconds default
-		MaxDIDLength:        getenvInt("MAX_DID_LENGTH", 2048),       // 2KB default
-		DIDResolverDebug:    getenv("DID_RESOLVER_DEBUG", "false") == "true",
+		MaxDIDLength:         getenvInt("MAX_DID_LENGTH", 2048),      // 2KB default
+		DIDResolverDebug:     getenv("DID_RESOLVER_DEBUG", "false") == "true",
 	}
 }
 

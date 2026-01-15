@@ -16,7 +16,7 @@ var Logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level:
 // Initialize to a sane default to avoid nil dereferences in tests/services
 // that don't explicitly call Init(). Init() will override this.
 var AuditLogger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-	Level:    slog.LevelInfo,
+	Level:     slog.LevelInfo,
 	AddSource: true,
 }))
 
@@ -37,9 +37,9 @@ type AuditEventType string
 
 const (
 	// Authentication and authorization events
-	AuditEventLogin          AuditEventType = "auth.login"
-	AuditEventLogout         AuditEventType = "auth.logout"
-	AuditEventAccessDenied   AuditEventType = "auth.access_denied"
+	AuditEventLogin           AuditEventType = "auth.login"
+	AuditEventLogout          AuditEventType = "auth.logout"
+	AuditEventAccessDenied    AuditEventType = "auth.access_denied"
 	AuditEventPermissionGrant AuditEventType = "auth.permission_grant"
 
 	// Credential lifecycle events
@@ -47,6 +47,7 @@ const (
 	AuditEventCredentialVerified AuditEventType = "credential.verified"
 	AuditEventCredentialRevoked  AuditEventType = "credential.revoked"
 	AuditEventDelegationCreated  AuditEventType = "credential.delegation_created"
+	AuditEventOIDC4VPVerified    AuditEventType = "oidc4vp.verified"
 
 	// Administrative events
 	AuditEventTrustRegistryUpdate AuditEventType = "admin.trust_registry_update"
@@ -57,10 +58,10 @@ const (
 	AuditEventConfigChange        AuditEventType = "admin.config_change"
 
 	// Security events
-	AuditEventSecurityIncident    AuditEventType = "security.incident"
-	AuditEventRateLimitExceeded   AuditEventType = "security.rate_limit_exceeded"
-	AuditEventSuspiciousActivity  AuditEventType = "security.suspicious_activity"
-	AuditEventDataAccess          AuditEventType = "security.data_access"
+	AuditEventSecurityIncident   AuditEventType = "security.incident"
+	AuditEventRateLimitExceeded  AuditEventType = "security.rate_limit_exceeded"
+	AuditEventSuspiciousActivity AuditEventType = "security.suspicious_activity"
+	AuditEventDataAccess         AuditEventType = "security.data_access"
 )
 
 // AuditEvent represents a structured audit log entry.
@@ -88,7 +89,7 @@ func Init(level string) {
 
 	// Initialize audit logger with structured format
 	auditHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level:     slog.LevelInfo,
 		AddSource: true,
 	})
 	AuditLogger = slog.New(auditHandler)
@@ -143,19 +144,19 @@ func GetUserID(ctx context.Context) string {
 // ContextLogger returns a logger with context values pre-populated.
 func ContextLogger(ctx context.Context) *slog.Logger {
 	logger := Logger
-	
+
 	if correlationID := GetCorrelationID(ctx); correlationID != "" {
 		logger = logger.With("correlation_id", correlationID)
 	}
-	
+
 	if tenantID := GetTenantID(ctx); tenantID != "" {
 		logger = logger.With("tenant_id", tenantID)
 	}
-	
+
 	if userID := GetUserID(ctx); userID != "" {
 		logger = logger.With("user_id", userID)
 	}
-	
+
 	return logger
 }
 
@@ -178,20 +179,20 @@ func LogAuditEvent(ctx context.Context, event AuditEvent) {
 	if event.CorrelationID == "" {
 		event.CorrelationID = GetCorrelationID(ctx)
 	}
-	
+
 	// Populate tenant ID from context if not set
 	if event.TenantID == "" {
 		event.TenantID = GetTenantID(ctx)
 	}
-	
+
 	// Populate user ID from context if not set
 	if event.UserID == "" {
 		event.UserID = GetUserID(ctx)
 	}
-	
+
 	// Set timestamp
 	event.Timestamp = time.Now().UTC()
-	
+
 	// Use AuditLogger if set; otherwise fall back to slog.Default()
 	logger := AuditLogger
 	if logger == nil {

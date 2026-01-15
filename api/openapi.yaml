@@ -119,6 +119,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GatewayAuthorizeResponse'
+  /v1/oidc4vp/response:
+    post:
+      summary: OIDC4VP direct_post response handler
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                vp_token:
+                  type: string
+              required: [state, vp_token]
+      responses:
+        '200':
+          description: VP token verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDC4VPResponse'
+        '400':
+          description: Invalid request or response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
 components:
   schemas:
     HealthResponse:
@@ -262,3 +296,15 @@ components:
         api_version:
           type: string
       required: [error, api_version]
+    OIDC4VPResponse:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        holder_did:
+          type: string
+        credential_count:
+          type: integer
+        api_version:
+          type: string
+      required: [verified, api_version]
