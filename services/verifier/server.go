@@ -21,6 +21,7 @@ import (
 	"github.com/bradtumy/credential-service/internal/keystore"
 	"github.com/bradtumy/credential-service/internal/logging"
 	"github.com/bradtumy/credential-service/internal/metrics"
+	"github.com/bradtumy/credential-service/internal/oidc4vp"
 	"github.com/bradtumy/credential-service/internal/policy"
 	"github.com/bradtumy/credential-service/internal/ratelimit"
 	"github.com/bradtumy/credential-service/internal/storage"
@@ -155,6 +156,18 @@ func NewServer(ctx context.Context, cfg config.VerifierConfig) (*Server, error) 
 
 	mux := http.NewServeMux()
 	httpserver.RegisterVerifierRoutes(mux, resolver, trustRegistry, cfg.DefaultTenantID, verifierMetrics, time.Now)
+
+	oidc4vpStore := oidc4vp.NewMemoryRequestStore()
+	httpserver.RegisterOIDC4VPRoutes(mux, httpserver.OIDC4VPConfig{
+		RequestStore:     oidc4vpStore,
+		IssuerResolver:   resolver,
+		HolderResolver:   func(holder string) (crypto.PublicKey, error) { return didResolver.ResolvePublicKey(ctx, holder) },
+		TrustRegistry:    trustRegistry,
+		DefaultTenantID:  cfg.DefaultTenantID,
+		MaxRequestSize:   int64(cfg.OIDC4VPMaxRequestSize),
+		Now:              time.Now,
+		RevocationStrict: cfg.OIDC4VPRevocationStrict,
+	})
 
 	var decisionCache cache.DecisionCache = cache.NoopDecisionCache{}
 	if cfg.GatewayCache && cfg.RedisAddr != "" {
