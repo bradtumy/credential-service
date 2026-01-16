@@ -1,1 +1,43 @@
+# Compiled binaries
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output of the go coverage tool
+coverage.out
+coverage.html
+
+# Vendor directories (if used)
+vendor/
+
+# Environment files
+.env
+.env.local
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Compiled example binaries
+audit-logging-demo
+basic
+issuer
+killer-demo
+kms-test
+verifier
+
+# Backup files
+*.bak
 

@@ -1,5 +1,5 @@
-// SD-JWT example using local sdk-nodejs helpers
-const Client = require('../../../sdk-nodejs/client');
+// SD-JWT example using sdk/node
+const Client = require('../../../sdk/node/client');
 
 async function run() {
   const issuerURL = process.env.ISSUER_URL || 'http://localhost:8080';
